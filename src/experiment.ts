@@ -10,6 +10,7 @@ import {
   START,
 } from "./algorithms.ts";
 import type { AlgorithmId, Category } from "./algorithms.ts";
+import { defaultGame, defaultProblem } from "./advancedSearch.ts";
 
 export const EXPERIMENT_KEY = "tansaku-experiment-v1";
 export const categoryDefaults: Record<Category, AlgorithmId> = {
@@ -17,13 +18,15 @@ export const categoryDefaults: Record<Category, AlgorithmId> = {
   maze: "bfs",
   tree: "bst",
   sort: "bubble",
+  problem: "decomposition",
+  game: "game-tree",
 };
 export type Experiment = {
   version: 1;
   category: Category;
   algorithmId: AlgorithmId;
   selections: Record<Category, AlgorithmId>;
-  data: Record<"array" | "tree" | "sort", number[]>;
+  data: Record<Exclude<Category, "maze">, number[]>;
   grid: number[];
   start: number;
   goal: number;
@@ -41,6 +44,8 @@ export function defaultExperiment(): Experiment {
       array: [...defaultArray],
       tree: [...defaultTree],
       sort: [...defaultSort],
+      problem: [...defaultProblem],
+      game: [...defaultGame],
     },
     grid: initialMaze(),
     start: START,
@@ -68,8 +73,12 @@ export function validateExperiment(value: unknown): Experiment {
     return fail();
   const integer = (v: unknown, min: number, max: number) =>
     typeof v === "number" && Number.isInteger(v) && v >= min && v <= max;
-  for (const cat of ["array", "tree", "sort"] as const) {
-    const list = input.data?.[cat];
+  for (const cat of ["array", "tree", "sort", "problem", "game"] as const) {
+    // Version 1 experiments created before these sections keep working.
+    const candidate = input.data?.[cat];
+    const list = candidate === undefined
+      ? (cat === "problem" ? defaultProblem : cat === "game" ? defaultGame : undefined)
+      : candidate;
     if (
       !Array.isArray(list) ||
       !list.length ||
@@ -120,6 +129,8 @@ export function validateExperiment(value: unknown): Experiment {
       array,
       tree: [...new Set(input.data.tree)],
       sort: [...input.data.sort],
+      problem: [...(input.data.problem ?? defaultProblem)],
+      game: [...(input.data.game ?? defaultGame)],
     },
     grid: [...input.grid],
     start: input.start,

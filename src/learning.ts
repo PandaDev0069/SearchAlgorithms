@@ -191,7 +191,7 @@ export const achievements = [
   {
     id: "all",
     name: "アルゴリズムの賢者",
-    description: "全19種類のアルゴリズムを体験",
+    description: `全${algorithms.length}種類のアルゴリズムを体験`,
     icon: "crown",
   },
   {

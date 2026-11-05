@@ -91,6 +91,9 @@ import {
   validateExperiment,
 } from "./experiment";
 import type { Experiment } from "./experiment";
+import { advancedFrames, buildSearchGraph, defaultGame, defaultProblem } from "./advancedSearch";
+import type { AdvancedId } from "./advancedSearch";
+import { formatNodeScore, formatScore, SearchGraphDiagram } from "./SearchGraphDiagram";
 
 const categories: {
   id: Category;
@@ -127,8 +130,16 @@ const categories: {
     icon: BarChart3,
     description: "ばらばらの値が、秩序に変わる瞬間。",
   },
+  {
+    id: "problem", name: "問題の分解と探索", en: "PROBLEM DECOMPOSITION", icon: Layers3,
+    description: "部分問題に分けて、答えを組み合わせよう。",
+  },
+  {
+    id: "game", name: "ゲーム探索", en: "GAME SEARCH", icon: GitBranch,
+    description: "相手の最善の応手まで読んで、次の一手を選ぼう。",
+  },
 ];
-const presetSize = { array: 15, tree: 15, sort: 12 };
+const presetSize = { array: 15, tree: 15, sort: 12, problem: 4, game: 8 };
 type Modal = "help" | "compare" | "settings" | "learning" | "share" | null;
 
 function App() {
@@ -225,6 +236,8 @@ function App() {
   const categoryInfo = categories.find((c) => c.id === category)!;
   const CategoryIcon = categoryInfo.icon;
   const values = category === "maze" ? grid : data[category];
+  const isGraph = category === "problem" || category === "game";
+  const graphNodes = useMemo(() => isGraph ? buildSearchGraph(algorithmId as AdvancedId, values) : [], [isGraph, algorithmId, values]);
   const frames = useMemo(
     () =>
       category === "maze"
@@ -233,7 +246,9 @@ function App() {
           ? treeFrames(algorithmId, data.tree, target)
           : category === "sort"
             ? sortFrames(algorithmId, data.sort)
-            : searchFrames(algorithmId, data.array, target),
+            : category === "problem" || category === "game"
+              ? advancedFrames(algorithmId as AdvancedId, data[category])
+              : searchFrames(algorithmId, data.array, target),
     [algorithmId, category, data, grid, start, goal, target, mazeOptions],
   );
   const safeStep = Math.min(step, frames.length - 1),
@@ -617,7 +632,8 @@ function App() {
         ? [...defaultArray]
         : category === "tree"
           ? [...defaultTree]
-          : [...defaultSort];
+          : category === "problem" ? [...defaultProblem]
+            : category === "game" ? [...defaultGame] : [...defaultSort];
     if (preset === "reverse") next.sort((a, b) => b - a);
     if (preset === "duplicates") next = [8, 3, 8, 1, 3, 5, 8, 5];
     if (preset === "negative") next = [-12, 7, -3, 0, 15, -8, 4];
@@ -695,7 +711,9 @@ function App() {
     }
     let next = Array.from(
       { length: presetSize[category] },
-      () => Math.floor(Math.random() * 96) + 3,
+      () => category === "problem" ? Math.round(Math.random())
+        : category === "game" ? Math.floor(Math.random() * 21) - 10
+          : Math.floor(Math.random() * 96) + 3,
     );
     if (category === "array" && algorithmId !== "linear")
       next.sort((a, b) => a - b);
@@ -713,7 +731,7 @@ function App() {
     }
     setData((prev) => ({ ...prev, [category]: next }));
     setRaw(next.join(", "));
-    if (category !== "sort") {
+    if (category === "array" || category === "tree") {
       const t = next[Math.floor(Math.random() * next.length)];
       setTarget(t);
       setTargetInput(String(t));
@@ -768,6 +786,7 @@ function App() {
         "g（実コスト）",
         "h（予測）",
         "f（評価値）",
+        "α", "β", "根の評価値・総和・成否", "枝刈りノード",
         "比較・訪問回数",
         "交換回数",
         "移動コスト",
@@ -780,7 +799,7 @@ function App() {
           .map((n) =>
             category === "maze"
               ? `(${Math.floor(n / COLS)},${n % COLS})`
-              : f.array[n],
+              : isGraph ? formatNodeScore(f, n) : f.array[n],
           )
           .join(" / "),
         f.left ?? "",
@@ -791,6 +810,9 @@ function App() {
         f.g ?? "",
         f.h ?? "",
         f.f ?? "",
+        f.alpha === undefined ? "" : formatScore(f.alpha),
+        f.beta === undefined ? "" : formatScore(f.beta),
+        f.value ?? "", f.pruned?.join(" / ") ?? "",
         f.comparisons,
         f.swaps,
         f.cost ?? "",
@@ -1006,6 +1028,8 @@ function App() {
                   ? "整列を、"
                   : category === "tree"
                     ? "構造を、"
+                    : category === "game" ? "次の一手を、"
+                    : category === "problem" ? "問題の分解を、"
                     : category === "maze"
                       ? "道すじを、"
                       : "探索を、"}
@@ -1022,6 +1046,7 @@ function App() {
                 <p>
                   {category === "maze"
                     ? "マスをなぞって、自分だけの迷路を。"
+                    : isGraph ? "終端の値を変えて、答えを比べてみよう。"
                     : "データも目標も、自由に変えてみよう。"}
                 </p>
               </div>
@@ -1200,7 +1225,9 @@ function App() {
                   <label htmlFor="array-input">
                     {category === "tree"
                       ? "挿入する値（入力順）"
-                      : "配列のデータ"}
+                      : category === "game" ? "終端局面の評価値（左から）"
+                        : category === "problem" ? algorithmId === "and-or" ? "終端の成否（0 は失敗、0 以外は成功）" : "分解して合計する値"
+                          : "配列のデータ"}
                     <span>最大 {category === "tree" ? "31" : "32"} 個</span>
                   </label>
                   <div className="input-action">
@@ -1220,7 +1247,7 @@ function App() {
                     </button>
                   </div>
                 </div>
-                {category !== "sort" && (
+                {(category === "array" || category === "tree") && (
                   <div className="target-input">
                     <label htmlFor="target-input">
                       <Target size={13} />
@@ -1327,7 +1354,8 @@ function App() {
                   <span className="muted">
                     {category === "maze"
                       ? `${COLS} × ${ROWS}`
-                      : `${category === "tree" ? buildTree(values).length : values.length} ${category === "tree" ? "ノード" : "要素"}`}
+                      : isGraph ? `${graphNodes.length} ノード`
+                        : `${category === "tree" ? buildTree(values).length : values.length} ${category === "tree" ? "ノード" : "要素"}`}
                   </span>
                 </div>
                 {category === "array" || category === "sort" ? (
@@ -1353,7 +1381,8 @@ function App() {
                   <span className="canvas-hint">
                     {category === "maze"
                       ? "クリック・ドラッグで編集"
-                      : "ノードをクリックして目標に設定"}
+                      : isGraph ? "終端の値は上の入力欄で編集"
+                        : "ノードをクリックして目標に設定"}
                   </span>
                 )}
               </div>
@@ -1362,7 +1391,7 @@ function App() {
                   <i className="legend-range" />
                   {category === "maze"
                     ? "探索待ち"
-                    : category === "tree"
+                    : category === "tree" || isGraph
                       ? "未訪問"
                       : "探索範囲"}
                 </span>
@@ -1380,7 +1409,7 @@ function App() {
                     ? "経路"
                     : category === "sort"
                       ? "整列完了"
-                      : "発見"}
+                      : isGraph ? "解・主変化" : "発見"}
                 </span>
               </div>
               {category === "maze" && (
@@ -1425,6 +1454,8 @@ function App() {
                     ))}
                   </div>
                 </div>
+              ) : isGraph ? (
+                <SearchGraphDiagram id={algorithmId as AdvancedId} values={values} frame={frame} />
               ) : category === "tree" ? (
                 <TreeDiagram
                   values={values}
@@ -1459,14 +1490,14 @@ function App() {
                     {frame.result === "found"
                       ? "見つかりました！"
                       : frame.result === "complete"
-                        ? "整列が完了しました"
+                        ? category === "sort" ? "整列が完了しました" : "探索が完了しました"
                         : frame.result === "missing"
                           ? "探索が終了しました"
                           : frame.result === "limited"
                             ? "探索の上限に達しました"
                             : safeStep === 0
                               ? "準備完了"
-                              : `STEP ${String(safeStep).padStart(2, "0")} — ${category === "maze" ? "マスを訪問" : category === "sort" ? "比較・交換" : "値を比較"}`}
+                              : `STEP ${String(safeStep).padStart(2, "0")} — ${category === "maze" ? "マスを訪問" : isGraph ? "ノードの探索・評価" : category === "sort" ? "比較・交換" : "値を比較"}`}
                   </strong>
                   <p>{frame.message}</p>
                 </div>
@@ -1656,7 +1687,9 @@ function App() {
                       ? "同じ迷路で BFS と DFS を切り替えて、訪問する順番と経路の違いを観察しましょう。"
                       : category === "tree"
                         ? "挿入順を昇順にしてみると、木が一直線に。木の高さと探索回数の関係を発見できます。"
-                        : "ほぼ整列された配列では、どの方法が有利でしょう？ データを変えて比較してみましょう。"}
+                        : category === "game" ? "同じ終端評価でミニマックス法とアルファベータ法を比べ、答えと訪問数を確認しましょう。"
+                          : category === "problem" ? "SUM は左右の答えを結合します。AND/OR では、両方が必要な問題と選べる問題の違いを観察しましょう。"
+                            : "ほぼ整列された配列では、どの方法が有利でしょう？ データを変えて比較してみましょう。"}
                 </p>
               </div>
             </section>
@@ -1665,26 +1698,28 @@ function App() {
           <div className="stats-row" hidden={!preferences.showStats}>
             <Stat
               icon={category === "maze" ? Workflow : Search}
-              label={category === "maze" ? "累積訪問回数" : "比較回数"}
+              label={category === "maze" ? "累積訪問回数" : isGraph ? "訪問ノード数" : "比較回数"}
               value={frame.comparisons}
               unit="回"
               detail={
                 category === "maze"
                   ? "再訪問も1回として計算"
-                  : "値を確認した回数"
+                  : isGraph ? "共有ノードの答えの再利用は除く" : "値を確認した回数"
               }
             />
             <Stat
               icon={category === "sort" ? Shuffle : Target}
               label={
-                category === "sort"
+                isGraph ? category === "game" ? "根の評価値" : algorithmId === "and-or" ? "根の成否" : "総和"
+                : category === "sort"
                   ? "交換回数"
                   : category === "maze"
                     ? "経路の長さ"
                     : "探索する値"
               }
               value={
-                category === "sort"
+                isGraph ? algorithmId === "and-or" && frame.value !== undefined ? frame.value ? "成功" : "失敗" : formatScore(frame.value)
+                : category === "sort"
                   ? frame.swaps
                   : category === "maze"
                     ? frame.path
@@ -1696,7 +1731,8 @@ function App() {
                 category === "sort" ? "回" : category === "maze" ? "歩" : ""
               }
               detail={
-                category === "maze"
+                isGraph ? "最終結果まで進むと表示"
+                : category === "maze"
                   ? frame.cost !== undefined
                     ? `移動コスト：${frame.cost}`
                     : "ゴール到達時に表示"
@@ -1708,7 +1744,8 @@ function App() {
             <Stat
               icon={Layers3}
               label={
-                category === "maze"
+                isGraph ? algorithmId === "alpha-beta" ? "枝刈りノード数" : "ノード数"
+                : category === "maze"
                   ? algorithmId === "iddfs"
                     ? "深さ / 上限"
                     : "探索待ち"
@@ -1719,7 +1756,8 @@ function App() {
                       : "残りの探索範囲"
               }
               value={
-                category === "maze"
+                isGraph ? algorithmId === "alpha-beta" ? frame.pruned?.length ?? 0 : graphNodes.length
+                : category === "maze"
                   ? algorithmId === "iddfs"
                     ? `${frame.depth ?? "—"} / ${frame.depthLimit ?? 0}`
                     : (frame.frontier?.length ?? 0)
@@ -1746,7 +1784,8 @@ function App() {
                     : "個"
               }
               detail={
-                category === "tree"
+                isGraph ? algorithmId === "alpha-beta" ? "子孫も含む未訪問の局面" : "内部ノードと終端ノードの合計"
+                : category === "tree"
                   ? "根を1段目として計算"
                   : category === "sort"
                     ? "昇順に並べ替え"
@@ -1880,7 +1919,8 @@ function App() {
                           <th>right</th>
                         </>
                       )}
-                      <th>{category === "maze" ? "累積訪問数" : "比較数"}</th>
+                      <th>{category === "maze" ? "累積訪問数" : isGraph ? "訪問ノード数" : "比較数"}</th>
+                      {isGraph && <><th>根の結果</th><th>α</th><th>β</th><th>枝刈り数</th></>}
                       {category === "maze" && (
                         <>
                           <th>深さ / 上限</th>
@@ -1925,7 +1965,7 @@ function App() {
                                     .map((n) =>
                                       category === "maze"
                                         ? `(${Math.floor(n / COLS)}, ${n % COLS})`
-                                        : `${category === "tree" ? "ノード" : "a"}[${n}]`,
+                                        : `${category === "tree" || isGraph ? "ノード" : "a"}[${n}]`,
                                     )
                                     .join(", ")
                                 : "—"}
@@ -1934,7 +1974,7 @@ function App() {
                               {category === "maze"
                                 ? (f.cost ?? "—")
                                 : f.active.length
-                                  ? f.active.map((n) => f.array[n]).join(", ")
+                                  ? f.active.map((n) => isGraph ? formatNodeScore(f, n) : f.array[n]).join(", ")
                                   : "—"}
                             </td>
                             {category === "array" && (
@@ -1945,6 +1985,7 @@ function App() {
                               </>
                             )}
                             <td>{f.comparisons}</td>
+                            {isGraph && <><td>{formatScore(f.value)}</td><td>{formatScore(f.alpha)}</td><td>{formatScore(f.beta)}</td><td>{f.pruned?.length ?? 0}</td></>}
                             {category === "maze" && (
                               <>
                                 <td>
@@ -1996,7 +2037,9 @@ function App() {
                   ? "壁や重いマスを置くと、最短の「距離」と最小の「コスト」は同じになるだろう？"
                   : category === "tree"
                     ? "同じ値でも、挿入する順番を変えると木の形はどう変わるだろう？"
-                    : "整列済みのデータと逆順のデータ。比較回数はどう変わるだろう？"}
+                    : category === "game" ? "終端の並びを逆順にすると、評価値やアルファベータ法の訪問数はどう変わるだろう？"
+                      : category === "problem" ? "AND の子に失敗がある場合と、OR の子に成功がある場合で、探索はいつ止まるだろう？"
+                        : "整列済みのデータと逆順のデータ。比較回数はどう変わるだろう？"}
             </p>
             <button onClick={() => setModal("compare")}>
               比較してみる
@@ -2523,7 +2566,7 @@ function TraceChart({
   return (
     <div className="trace-chart">
       <span className="chart-axis-label">
-        {category === "maze" ? "累積訪問回数" : "比較回数"}
+        {category === "maze" ? "累積訪問回数" : category === "problem" || category === "game" ? "訪問ノード数" : "比較回数"}
         {stride > 1 ? "（代表点を表示・全件はCSVへ）" : ""}
       </span>
       <svg
@@ -2679,7 +2722,7 @@ function Comparison({
   mazeOptions,
 }: {
   category: Category;
-  data: Record<"array" | "tree" | "sort", number[]>;
+  data: Experiment["data"];
   grid: number[];
   start: number;
   goal: number;
@@ -2699,7 +2742,8 @@ function Comparison({
                 ? treeFrames(a.id, data.tree, target)
                 : category === "sort"
                   ? sortFrames(a.id, data.sort)
-                  : searchFrames(
+                  : category === "problem" || category === "game" ? advancedFrames(a.id as AdvancedId, data[category])
+                    : searchFrames(
                       a.id,
                       a.id === "linear" ? data.array : sorted,
                       target,
@@ -2722,7 +2766,7 @@ function Comparison({
       <h2 id="modal-title">同じデータで、比べてみる。</h2>
       <p className="modal-description">
         現在の
-        {category === "maze" ? "迷路" : category === "tree" ? "木" : "配列"}
+        {category === "maze" ? "迷路" : category === "tree" ? "木" : category === "game" ? "終端評価" : category === "problem" ? "入力値" : "配列"}
         を使った、実際の実行結果です。
         {category === "array" || category === "tree"
           ? ` 探索する値：${target}`
@@ -2736,7 +2780,7 @@ function Comparison({
               <span>{a.time}</span>
               <b>
                 {last.comparisons}{" "}
-                <small>{category === "maze" ? "マス訪問" : "回比較"}</small>
+                <small>{category === "maze" ? "マス訪問" : category === "problem" || category === "game" ? "ノード訪問" : "回比較"}</small>
               </b>
             </div>
             <div className="comparison-bar">
@@ -2746,7 +2790,9 @@ function Comparison({
               {last.result === "limited"
                 ? "上限到達（経路の有無は未確定）"
                 : last.result === "missing"
-                  ? "目標は見つかりませんでした"
+                  ? category === "problem" ? "根の問題を解決できませんでした" : "目標は見つかりませんでした"
+                  : category === "game" ? a.id === "game-tree" ? "全局面を走査（最善手の選択なし）" : `評価値 ${last.value} / 最善手 ${last.path?.[1] ?? "終端"} / 枝刈り ${last.pruned?.length ?? 0} ノード`
+                  : category === "problem" ? a.id === "and-or" ? "解グラフを発見" : `総和 ${last.value}`
                   : category === "maze"
                     ? `${(last.path?.length ?? 1) - 1} 歩 / コスト ${last.cost}`
                     : category === "sort"
@@ -2766,7 +2812,9 @@ function Comparison({
               ? "BFS / DFS / 反復深化は重みを無視します。最良優先 / A / A* / ダイクストラは重みをコストに加算します。最良優先と α>1 の A は最小コストを保証しません。反復深化は再訪問を累積し、設定した深さ上限を使用します。"
               : category === "tree"
                 ? "同じ木と目標値でも、ノードを訪問する順番によって比較回数が変わります。"
-                : "交換回数には、同じ位置どうしの交換は含みません。入力の並びを変えると、結果も変わります。"}
+                : category === "game" ? "同じゲーム木を左から探索します。ミニマックス法とアルファベータ法の根の評価と最善手は一致します。訪問数には内部ノードも含み、枝刈りした局面は含みません。"
+                  : category === "problem" ? "同じ数列を、分解では加算、AND/OR では成否（0 は失敗）として使います。異なる問題なので、訪問数は処理の違いを観察するための指標です。"
+                    : "交換回数には、同じ位置どうしの交換は含みません。入力の並びを変えると、結果も変わります。"}
         </p>
       </div>
     </>

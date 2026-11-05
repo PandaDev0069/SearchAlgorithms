@@ -219,3 +219,53 @@ test("dialogs retain keyboard focus and background tabs pause playback", async (
     configurable: true,
   });
 });
+
+test("problem decomposition and AND/OR graphs support editing, solutions and failure states", () => {
+  render(<App />);
+  fireEvent.click(screen.getByRole("tab", { name: "問題の分解と探索" }));
+  assert.equal(screen.queryByLabelText("探索する値"), null);
+  const input = screen.getByLabelText(/分解して合計する値/);
+  fireEvent.change(input, { target: { value: "-3, 5, 5, 0" } });
+  fireEvent.click(screen.getByRole("button", { name: "適用" }));
+  fireEvent.click(screen.getByRole("button", { name: "最後まで進む" }));
+  assert.ok(within(screen.getByRole("region", { name: "アルゴリズムの可視化" })).getByText("部分問題を結合しました。総和は 7 です。"));
+  fireEvent.change(screen.getByLabelText("アルゴリズム"), { target: { value: "and-or" } });
+  assert.ok(screen.getByRole("img", { name: "共有する終端を持つ AND/OR グラフ" }));
+  fireEvent.click(screen.getByRole("button", { name: "最後まで進む" }));
+  assert.ok(document.querySelectorAll(".search-edge.selected").length > 0);
+  fireEvent.change(screen.getByLabelText(/終端の成否/), { target: { value: "0, 1, 0" } });
+  fireEvent.click(screen.getByRole("button", { name: "適用" }));
+  fireEvent.click(screen.getByRole("button", { name: "最後まで進む" }));
+  assert.ok(within(screen.getByRole("region", { name: "アルゴリズムの可視化" })).getByText("根の問題を解決できる選択肢はありません。"));
+  assert.equal(document.querySelectorAll(".search-edge.selected").length, 0);
+});
+
+test("game search renders pruning, compares results and restores the saved experiment stopped", async () => {
+  const view = render(<App />);
+  fireEvent.click(screen.getByRole("tab", { name: "ゲーム探索" }));
+  const input = screen.getByLabelText(/終端局面の評価値/);
+  fireEvent.change(input, { target: { value: "5, 6, 3, 9" } });
+  fireEvent.click(screen.getByRole("button", { name: "適用" }));
+  fireEvent.change(screen.getByLabelText("アルゴリズム"), { target: { value: "alpha-beta" } });
+  fireEvent.click(screen.getByRole("button", { name: "最後まで進む" }));
+  assert.ok(within(screen.getByRole("region", { name: "アルゴリズムの可視化" })).getByText(/根の評価値は 5/));
+  assert.equal(document.querySelectorAll(".search-node.pruned").length, 1);
+  assert.ok(within(screen.getByRole("region", { name: "アルゴリズムの可視化" })).getByText("≤3"));
+  assert.ok(screen.getByRole("columnheader", { name: "α" }));
+  fireEvent.click(screen.getByRole("button", { name: "比較してみる" }));
+  const dialog = within(screen.getByRole("dialog"));
+  assert.equal(dialog.getAllByText(/評価値 5 \/ 最善手 1/).length, 2);
+  assert.ok(dialog.getByText("全局面を走査（最善手の選択なし）"));
+  fireEvent.keyDown(document, { key: "Escape" });
+  fireEvent.click(screen.getByRole("button", { name: "元に戻す" }));
+  assert.equal((screen.getByLabelText(/終端局面の評価値/) as HTMLInputElement).value, "3, 5, 6, 9, 1, 2, 0, -1");
+  fireEvent.click(screen.getByRole("button", { name: "やり直す" }));
+  await waitFor(() => assert.ok(localStorage.getItem("tansaku-experiment-v1")?.includes('"algorithmId":"alpha-beta"')));
+  view.unmount();
+  render(<App />);
+  assert.equal((screen.getByLabelText("アルゴリズム") as HTMLSelectElement).value, "alpha-beta");
+  assert.equal((screen.getByLabelText(/終端局面の評価値/) as HTMLInputElement).value, "5, 6, 3, 9");
+  assert.equal((screen.getByRole("slider", { name: "実行ステップ" }) as HTMLInputElement).value, "0");
+  assert.ok(screen.getByRole("button", { name: "再生" }));
+  assert.ok(localStorage.getItem("tansaku-learning-v1")?.includes("alpha-beta"));
+});

@@ -1,3 +1,24 @@
+.category-tabs { overflow-x: auto; }
+.category-tabs button { flex-shrink: 0; white-space: nowrap; }
+.search-graph { flex: 1; min-width: 0; padding: 12px 20px; }
+.search-evaluation { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--accent-text); font-size: .75rem; }
+.search-graph-scroll { overflow: auto; max-height: 550px; margin-top: 10px; }
+.search-graph svg { display: block; width: 100%; }
+.search-edge { stroke: var(--border); stroke-width: 2; }
+.search-edge.selected { stroke: var(--success); stroke-width: 3; }
+.search-edge.pruned { stroke-dasharray: 6 4; }
+.search-node rect { fill: var(--surface-alt); stroke: var(--border); stroke-width: 1.5; }
+.search-node text { fill: var(--text); font: .875rem var(--mono); }
+.search-node .search-node-kind, .search-node .search-node-id { fill: var(--muted); font-size: .625rem; }
+.search-node.visited rect { fill: var(--visited); }
+.search-node.active rect { fill: var(--warning-soft); stroke: var(--warning-border); stroke-width: 3; }
+.search-node.found rect { fill: var(--success-soft); stroke: var(--success); stroke-width: 3; }
+.search-node.pruned rect { stroke-dasharray: 4 3; }
+.pruned-mark { stroke: var(--warning); stroke-width: 2; }
+.search-graph-note { color: var(--muted); font-size: .6875rem; line-height: 1.8; margin: 10px 0; }
+:root[data-contrast="high"] .search-node.active rect { stroke-dasharray: 5 2; }
+:root[data-contrast="high"] .search-node.found rect { stroke-width: 5; }
+
 :root {
   font-size: calc(16px * var(--font-scale, 1));
   --page: #f5f7f4;

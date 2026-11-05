@@ -162,7 +162,7 @@ test('new maze strategies: blocked goals, identical endpoints and immutable snap
     const input=[0,0,0],frames=mazeFrames(id,input,0,2,1,3);input[1]=1;
     assert.equal(frames[0].array[1],0);assert.equal(frames.at(-1)!.array[1],0);
   }
-  assert.equal(algorithms.length,19);assert.equal(algorithms.filter(a=>a.category==='maze').length,7);
+  assert.equal(algorithms.length,24);assert.equal(algorithms.filter(a=>a.category==='maze').length,7);
 });
 
 test('A with an admissible heuristic matches minimum costs on deterministic weighted mazes',()=>{

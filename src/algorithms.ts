@@ -1,15 +1,20 @@
-export type Category = 'array' | 'maze' | 'tree' | 'sort';
-export type AlgorithmId = 'linear' | 'binary' | 'jump' | 'interpolation' | 'bfs' | 'dfs' | 'iddfs' | 'greedy' | 'a-search' | 'dijkstra' | 'astar' | 'bst' | 'tree-bfs' | 'tree-dfs' | 'inorder' | 'bubble' | 'selection' | 'insertion' | 'quick';
+import { advancedAlgorithms } from './advancedSearch';
+
+export type Category = 'array' | 'maze' | 'tree' | 'sort' | 'problem' | 'game';
+export type AlgorithmId = 'linear' | 'binary' | 'jump' | 'interpolation' | 'bfs' | 'dfs' | 'iddfs' | 'greedy' | 'a-search' | 'dijkstra' | 'astar' | 'bst' | 'tree-bfs' | 'tree-dfs' | 'inorder' | 'bubble' | 'selection' | 'insertion' | 'quick' | 'decomposition' | 'and-or' | 'game-tree' | 'minimax' | 'alpha-beta';
 export type Algorithm = { id: AlgorithmId; category: Category; name: string; en: string; time: string; space: string; description: string; condition: string; points: string[]; code: string[] };
 export type Frame = {
   array: number[]; active: number[]; visited: number[]; found: number[];
   comparisons: number; swaps: number; line: number; message: string;
   left?: number; right?: number; mid?: number; frontier?: number[]; path?: number[]; cost?: number;
   depth?: number; depthLimit?: number; g?: number; h?: number; f?: number; trail?: number[];
+  evaluations?: (number | null)[]; pruned?: number[]; solutionEdges?: [number, number][];
+  scoreBounds?: ('lower' | 'upper' | null)[]; alpha?: number; beta?: number; value?: number;
   result?: 'found' | 'missing' | 'complete' | 'limited';
 };
 
 export const algorithms: Algorithm[] = [
+  ...advancedAlgorithms,
   { id: 'linear', category: 'array', name: '線形探索', en: 'Linear Search', time: 'O(n)', space: 'O(1)', description: '先頭から順番に、ひとつずつ。どんな配列にも使える、探索の基本です。', condition: '並び順は自由', points: ['未整列の配列でも使えます。', '最初に一致した要素のインデックスを返します。', '最悪の場合、すべての n 個の要素を確認します。'], code: ['def linear_search(a, target):', '    for i in range(len(a)):', '        if a[i] == target:', '            return i', '    return -1'] },
   { id: 'binary', category: 'array', name: '二分探索', en: 'Binary Search', time: 'O(log n)', space: 'O(1)', description: '真ん中を調べて、探索範囲を半分に。整列済みの配列から効率よく値を見つけます。', condition: '昇順に整列済み', points: ['配列が昇順に整列されていることが前提です。', '中央の値と比較し、探索範囲を半分に絞ります。', '重複がある場合は、一致した要素のひとつを返します。'], code: ['def binary_search(a, target):', '    left, right = 0, len(a) - 1', '    while left <= right:', '        mid = (left + right) // 2', '        if a[mid] == target:', '            return mid', '        elif a[mid] < target:', '            left = mid + 1', '        else:', '            right = mid - 1', '    return -1'] },
   { id: 'jump', category: 'array', name: 'ジャンプ探索', en: 'Jump Search', time: 'O(√n)', space: 'O(1)', description: '一定の幅でジャンプし、目標の区間が見つかったら順番に調べます。', condition: '昇順に整列済み', points: ['ジャンプ幅は ⌊√n⌋ を使います。', 'ブロックの末尾で範囲を絞り、区間内を線形探索します。', '二分探索との確認回数の違いを比較してみましょう。'], code: ['def jump_search(a, target):', '    step = max(1, int(sqrt(len(a))))', '    start, end = 0, step - 1', '    while a[min(end, len(a)-1)] < target:', '        start, end = end + 1, end + step', '        if start >= len(a): return -1', '    for i in range(start, min(end+1, len(a))):', '        if a[i] == target: return i', '    return -1'] },

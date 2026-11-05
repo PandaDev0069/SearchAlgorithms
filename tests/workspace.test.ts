@@ -63,3 +63,31 @@ test("invalid preference saves fall back and clamp text and layout to usable bou
   assert.equal(p.speed, 1);
   assert.equal(p.showTrace, false);
 });
+
+test("new search sections preserve leaf order, duplicates and choices in files and shared links", () => {
+  for (const [category, ids] of [
+    ["problem", ["decomposition", "and-or"]],
+    ["game", ["game-tree", "minimax", "alpha-beta"]],
+  ] as const) for (const algorithmId of ids) {
+    const experiment = defaultExperiment();
+    experiment.category = category;
+    experiment.algorithmId = algorithmId;
+    experiment.selections[category] = algorithmId;
+    experiment.data[category] = [-3, 5, 5, 0, -1];
+    assert.deepEqual(parseExperiment(JSON.stringify(experiment)), experiment);
+    assert.deepEqual(decodeExperiment(encodeExperiment(experiment)), experiment);
+    assert.throws(() => validateExperiment({ ...experiment, data: { ...experiment.data, [category]: [] } }));
+    assert.throws(() => validateExperiment({ ...experiment, data: { ...experiment.data, [category]: null } }));
+    assert.throws(() => validateExperiment({ ...experiment, data: { ...experiment.data, [category]: [1.5] } }));
+    assert.throws(() => validateExperiment({ ...experiment, data: { ...experiment.data, [category]: Array(33).fill(1) } }));
+  }
+});
+
+test("older version 1 saves gain default problem and game data without losing existing work", () => {
+  const previous = defaultExperiment();
+  const { problem: _problem, game: _game, ...data } = previous.data;
+  const restored = validateExperiment({ ...previous, data, selections: { array: 'binary', maze: 'bfs', tree: 'bst', sort: 'bubble' } });
+  assert.deepEqual(restored, previous);
+  assert.notEqual(restored.data.game, previous.data.game);
+  assert.throws(() => validateExperiment({ ...previous, category: 'game', algorithmId: 'and-or' }));
+});
