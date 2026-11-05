@@ -1,6 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowDown,
   ArrowRight,
   ArrowUpRight,
   BarChart3,
@@ -12,39 +10,39 @@ import {
   ChevronRight,
   CircleHelp,
   Clock3,
-  Code2,
+  Columns2,
+  Copy,
   Download,
   Flag,
-  GitBranch,
+  Gem,
   Layers3,
-  ListFilter,
+  LayoutList,
+  Maximize2,
   Menu,
+  Minimize2,
+  Moon,
   MousePointer2,
+  PanelLeftClose,
   Play,
   Plus,
+  Redo2,
   Search,
+  Settings2,
+  Share2,
   Shuffle,
   Sparkles,
   StepForward,
-  Target,
-  Workflow,
-  X,
-  Columns2,
-  Copy,
-  Gem,
-  LayoutList,
-  Maximize2,
-  Minimize2,
-  Moon,
-  PanelLeftClose,
-  Redo2,
-  Settings2,
-  Share2,
   Sun,
+  Target,
   Undo2,
   Upload,
+  Workflow,
+  X,
 } from "lucide-react";
-import type { AlgorithmId, Category, Frame, MazeOptions } from "./algorithms";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { AdvancedId } from "./advancedSearch";
+import { buildSearchGraph, defaultGame, defaultProblem } from "./advancedSearch";
+import type { AlgorithmId, Category, MazeOptions } from "./algorithms";
 import {
   algorithms,
   buildTree,
@@ -55,33 +53,19 @@ import {
   GOAL,
   initialMaze,
   makeMaze,
-  mazeFrames,
   parseValues,
   ROWS,
-  searchFrames,
-  sortFrames,
   START,
-  treeFrames,
 } from "./algorithms";
-import { usePreferences } from "./usePreferences";
-import { readStored, writeStored } from "./preferences";
-import { Settings } from "./Settings";
-import { LearningAdventure } from "./LearningAdventure";
+import { CodePanel } from "./CodePanel";
+import { createExecutionFrames } from "./execution";
 import {
   CurrentInstruction,
   PlaybackControls,
-  WatchStates,
   playbackSpeeds,
+  WatchStates,
 } from "./ExecutionPanel";
-import {
-  emptyLearning,
-  getStudyDay,
-  LEARNING_KEY,
-  mergeLearning,
-  openDailyChest,
-  recordStudy,
-  sanitizeLearning,
-} from "./learning";
+import type { Experiment } from "./experiment";
 import {
   categoryDefaults,
   decodeExperiment,
@@ -91,70 +75,29 @@ import {
   parseExperiment,
   validateExperiment,
 } from "./experiment";
-import type { Experiment } from "./experiment";
+import { downloadFile, traceCsv } from "./fileExport";
+import { Comparison, Guide } from "./HelpDialogs";
 import {
-  advancedFrames,
-  buildSearchGraph,
-  defaultGame,
-  defaultProblem,
-} from "./advancedSearch";
-import type { AdvancedId } from "./advancedSearch";
-import {
-  formatNodeScore,
-  formatScore,
-  SearchGraphDiagram,
-} from "./SearchGraphDiagram";
+  emptyLearning,
+  getStudyDay,
+  LEARNING_KEY,
+  mergeLearning,
+  openDailyChest,
+  recordStudy,
+  sanitizeLearning,
+} from "./learning";
+import { LearningAdventure } from "./LearningAdventure";
+import { MazeEvaluation, MazeSettings } from "./MazeControls";
+import { readStored, writeStored } from "./preferences";
+import { formatScore } from "./scoreFormatting";
+import { SearchGraphDiagram } from "./SearchGraphDiagram";
+import { Settings } from "./Settings";
+import { TracePanel } from "./TracePanel";
+import { usePreferences } from "./usePreferences";
+import { categories } from "./workspace";
+import { ArrayDiagram, TreeDiagram } from "./WorkspaceDiagrams";
+import { Stat } from "./WorkspaceSummary";
 
-const categories: {
-  id: Category;
-  name: string;
-  en: string;
-  icon: typeof Search;
-  description: string;
-}[] = [
-  {
-    id: "array",
-    name: "配列の探索",
-    en: "ARRAY SEARCH",
-    icon: Search,
-    description: "並んだデータから、目的の値を探そう。",
-  },
-  {
-    id: "maze",
-    name: "迷路の探索",
-    en: "PATHFINDING",
-    icon: Workflow,
-    description: "道を選び、行き止まりを越えて、ゴールへ。",
-  },
-  {
-    id: "tree",
-    name: "木の探索",
-    en: "TREE SEARCH",
-    icon: GitBranch,
-    description: "枝をたどり、データの構造を見つけよう。",
-  },
-  {
-    id: "sort",
-    name: "整列アルゴリズム",
-    en: "SORTING",
-    icon: BarChart3,
-    description: "ばらばらの値が、秩序に変わる瞬間。",
-  },
-  {
-    id: "problem",
-    name: "問題の分解と探索",
-    en: "PROBLEM DECOMPOSITION",
-    icon: Layers3,
-    description: "部分問題に分けて、答えを組み合わせよう。",
-  },
-  {
-    id: "game",
-    name: "ゲーム探索",
-    en: "GAME SEARCH",
-    icon: GitBranch,
-    description: "相手の最善の応手まで読んで、次の一手を選ぼう。",
-  },
-];
 const presetSize = { array: 15, tree: 15, sort: 12, problem: 4, game: 8 };
 type Modal = "help" | "compare" | "settings" | "learning" | "share" | null;
 
@@ -162,15 +105,14 @@ function App() {
   const { preferences, updatePreferences, resolvedTheme } = usePreferences();
   const [initial] = useState(() => {
     let warning = "";
-    const shared = new URLSearchParams(window.location.hash.slice(1)).get(
-      "lab",
-    );
-    if (shared)
+    const shared = new URLSearchParams(window.location.hash.slice(1)).get("lab");
+    if (shared) {
       try {
         return { experiment: decodeExperiment(shared), warning: "" };
       } catch (error) {
         warning = (error as Error).message;
       }
+    }
     return {
       experiment: preferences.resume
         ? readStored(EXPERIMENT_KEY, defaultExperiment(), validateExperiment)
@@ -178,84 +120,73 @@ function App() {
       warning,
     };
   });
-  const [category, setCategory] = useState<Category>(
-    initial.experiment.category,
-  );
-  const [algorithmId, setAlgorithmId] = useState<AlgorithmId>(
-    initial.experiment.algorithmId,
-  );
+  const [category, setCategory] = useState<Category>(initial.experiment.category);
+  const [algorithmId, setAlgorithmId] = useState<AlgorithmId>(initial.experiment.algorithmId);
   const [selections, setSelections] = useState(initial.experiment.selections);
   const [data, setData] = useState(initial.experiment.data);
   const [grid, setGrid] = useState(initial.experiment.grid);
-  const [heuristicWeight, setHeuristicWeight] = useState(
-      initial.experiment.heuristicWeight,
-    ),
-    [maxDepth, setMaxDepth] = useState(initial.experiment.maxDepth);
+
+  const [heuristicWeight, setHeuristicWeight] = useState(initial.experiment.heuristicWeight);
+  const [maxDepth, setMaxDepth] = useState(initial.experiment.maxDepth);
   const mazeOptions = useMemo<MazeOptions>(
     () => ({ heuristicWeight, maxDepth: maxDepth || undefined }),
     [heuristicWeight, maxDepth],
   );
-  const [start, setStart] = useState(initial.experiment.start),
-    [goal, setGoal] = useState(initial.experiment.goal);
-  const [target, setTarget] = useState(initial.experiment.target),
-    [targetInput, setTargetInput] = useState(String(initial.experiment.target));
+  const [start, setStart] = useState(initial.experiment.start);
+  const [goal, setGoal] = useState(initial.experiment.goal);
+  const [target, setTarget] = useState(initial.experiment.target);
+  const [targetInput, setTargetInput] = useState(String(initial.experiment.target));
+
   const [raw, setRaw] = useState(
-      initial.experiment.category === "maze"
-        ? ""
-        : initial.experiment.data[initial.experiment.category].join(", "),
-    ),
-    [error, setError] = useState("");
-  const [step, setStep] = useState(0),
-    [playing, setPlaying] = useState(false);
+    initial.experiment.category === "maze"
+      ? ""
+      : initial.experiment.data[initial.experiment.category].join(", "),
+  );
+  const [error, setError] = useState("");
+
+  const [step, setStep] = useState(0);
+  const [playing, setPlaying] = useState(false);
   const speed = preferences.speed;
   const [view, setView] = useState<"boxes" | "bars">("boxes");
-  const [codeTab, setCodeTab] = useState<"code" | "about">("code");
-  const [traceTab, setTraceTab] = useState<"table" | "chart">("table");
-  const [modal, setModal] = useState<Modal>(null),
-    [mobileMenu, setMobileMenu] = useState(false);
+
+  const [modal, setModal] = useState<Modal>(null);
+  const [mobileMenu, setMobileMenu] = useState(false);
   const [compactNavigation, setCompactNavigation] = useState(
     () =>
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(max-width: 1100px)").matches,
+      typeof window.matchMedia === "function" && window.matchMedia("(max-width: 1100px)").matches,
   );
-  const [paint, setPaint] = useState<
-    "wall" | "erase" | "weight" | "start" | "goal"
-  >("wall");
+  const [paint, setPaint] = useState<"wall" | "erase" | "weight" | "start" | "goal">("wall");
   const [toast, setToast] = useState(initial.warning);
+
   const [learning, setLearning] = useState(() =>
     readStored(
       LEARNING_KEY,
       {
         ...emptyLearning,
         days: {},
-        legacyAlgorithms: readStored<AlgorithmId[]>(
-          "tansaku-completed",
-          [],
-          (value) =>
-            Array.isArray(value)
-              ? value.filter((id): id is AlgorithmId =>
-                  algorithms.some((a) => a.id === id),
-                )
-              : [],
+        legacyAlgorithms: readStored<AlgorithmId[]>("tansaku-completed", [], (value) =>
+          Array.isArray(value)
+            ? value.filter((id): id is AlgorithmId => algorithms.some((a) => a.id === id))
+            : [],
         ),
       },
       sanitizeLearning,
     ),
   );
   const [today, setToday] = useState(getStudyDay);
-  const [past, setPast] = useState<Experiment[]>([]),
-    [future, setFuture] = useState<Experiment[]>([]);
-  const [fullscreen, setFullscreen] = useState(false),
-    [jumpInput, setJumpInput] = useState("");
+  const [past, setPast] = useState<Experiment[]>([]);
+  const [future, setFuture] = useState<Experiment[]>([]);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [jumpInput, setJumpInput] = useState("");
   const [mazeFocus, setMazeFocus] = useState(initial.experiment.start);
+
   const fileInput = useRef<HTMLInputElement>(null);
-  const activeCodeLine = useRef<HTMLDivElement>(null);
   const modalContainer = useRef<HTMLElement>(null);
   const navigationContainer = useRef<HTMLElement>(null);
   const menuTrigger = useRef<HTMLButtonElement>(null);
-  const dragging = useRef(false),
-    dragValue = useRef(1),
-    currentTrace = useRef<HTMLTableRowElement>(null);
+  const dragging = useRef(false);
+  const dragValue = useRef(1);
+
   const algorithm = algorithms.find((a) => a.id === algorithmId)!;
   const categoryInfo = categories.find((c) => c.id === category)!;
   const CategoryIcon = categoryInfo.icon;
@@ -267,24 +198,21 @@ function App() {
   );
   const frames = useMemo(
     () =>
-      category === "maze"
-        ? mazeFrames(algorithmId, grid, start, goal, ROWS, COLS, mazeOptions)
-        : category === "tree"
-          ? treeFrames(algorithmId, data.tree, target)
-          : category === "sort"
-            ? sortFrames(algorithmId, data.sort)
-            : category === "problem" || category === "game"
-              ? advancedFrames(algorithmId as AdvancedId, data[category])
-              : searchFrames(algorithmId, data.array, target),
+      createExecutionFrames(
+        { category, algorithmId, data, grid, start, goal, target },
+        mazeOptions,
+      ),
     [algorithmId, category, data, grid, start, goal, target, mazeOptions],
   );
-  const safeStep = Math.min(step, frames.length - 1),
-    frame = frames[safeStep];
+  const safeStep = Math.min(step, frames.length - 1);
+  const frame = frames[safeStep];
   const ended = safeStep === frames.length - 1;
+
   const reset = useCallback(() => {
     setPlaying(false);
     setStep(0);
   }, []);
+
   const experiment = useMemo<Experiment>(
     () => ({
       version: 1,
@@ -299,18 +227,7 @@ function App() {
       heuristicWeight,
       maxDepth,
     }),
-    [
-      category,
-      algorithmId,
-      selections,
-      data,
-      grid,
-      start,
-      goal,
-      target,
-      heuristicWeight,
-      maxDepth,
-    ],
+    [category, algorithmId, selections, data, grid, start, goal, target, heuristicWeight, maxDepth],
   );
   const shareUrl = useMemo(
     () =>
@@ -320,16 +237,22 @@ function App() {
 
   useEffect(() => {
     const media = window.matchMedia?.("(max-width: 1100px)");
-    if (!media) return;
+    if (!media) {
+      return;
+    }
     const change = (event: MediaQueryListEvent) => {
       setCompactNavigation(event.matches);
-      if (!event.matches) setMobileMenu(false);
+      if (!event.matches) {
+        setMobileMenu(false);
+      }
     };
     media.addEventListener("change", change);
     return () => media.removeEventListener("change", change);
   }, []);
   useEffect(() => {
-    if (!playing) return;
+    if (!playing) {
+      return;
+    }
     const timer = window.setInterval(
       () => setStep((s) => Math.min(s + 1, frames.length - 1)),
       650 / speed,
@@ -337,7 +260,9 @@ function App() {
     return () => window.clearInterval(timer);
   }, [playing, speed, frames.length]);
   useEffect(() => {
-    if (!ended || !playing) return;
+    if (!ended || !playing) {
+      return;
+    }
     if (preferences.loop) {
       const timer = window.setTimeout(() => setStep(0), 800 / speed);
       return () => window.clearTimeout(timer);
@@ -345,17 +270,15 @@ function App() {
     setPlaying(false);
   }, [ended, playing, preferences.loop, speed]);
   useEffect(() => {
-    if (ended && frame.result && frame.result !== "limited")
+    if (ended && frame.result && frame.result !== "limited") {
       setLearning((previous) =>
         recordStudy(
-          mergeLearning(
-            previous,
-            readStored(LEARNING_KEY, previous, sanitizeLearning),
-          ),
+          mergeLearning(previous, readStored(LEARNING_KEY, previous, sanitizeLearning)),
           algorithmId,
           getStudyDay(),
         ),
       );
+    }
   }, [ended, algorithmId, frame.result]);
   useEffect(() => {
     writeStored(LEARNING_KEY, learning);
@@ -370,7 +293,9 @@ function App() {
     };
   }, []);
   useEffect(() => {
-    if (!preferences.resume) return;
+    if (!preferences.resume) {
+      return;
+    }
     const save = () => writeStored(EXPERIMENT_KEY, experiment);
     const timer = window.setTimeout(save, 200);
     window.addEventListener("pagehide", save);
@@ -381,7 +306,9 @@ function App() {
   }, [experiment, preferences.resume]);
   useEffect(() => {
     const sync = (event: StorageEvent) => {
-      if (event.key !== LEARNING_KEY || !event.newValue) return;
+      if (event.key !== LEARNING_KEY || !event.newValue) {
+        return;
+      }
       try {
         const incoming = sanitizeLearning(JSON.parse(event.newValue));
         setLearning((previous) => mergeLearning(previous, incoming));
@@ -405,7 +332,9 @@ function App() {
   }, []);
   useEffect(() => {
     const pause = () => {
-      if (document.hidden && preferences.pauseWhenHidden) setPlaying(false);
+      if (document.hidden && preferences.pauseWhenHidden) {
+        setPlaying(false);
+      }
     };
     document.addEventListener("visibilitychange", pause);
     return () => document.removeEventListener("visibilitychange", pause);
@@ -415,36 +344,7 @@ function App() {
     document.addEventListener("fullscreenchange", change);
     return () => document.removeEventListener("fullscreenchange", change);
   }, []);
-  useEffect(() => {
-    const row = activeCodeLine.current;
-    const pane = row?.closest<HTMLElement>(".code-content");
-    if (!row || !pane) return;
-    const rowBox = row.getBoundingClientRect();
-    const paneBox = pane.getBoundingClientRect();
-    if (rowBox.top < paneBox.top || rowBox.bottom > paneBox.bottom)
-      pane.scrollTop += rowBox.top - paneBox.top - pane.clientHeight / 3;
-  }, [
-    safeStep,
-    algorithmId,
-    codeTab,
-    preferences.showCode,
-    preferences.layout,
-  ]);
-  useEffect(() => {
-    if (!preferences.followTrace) return;
-    const row = currentTrace.current,
-      container = row?.closest(".trace-scroll");
-    if (row && container) {
-      const top = row.offsetTop;
-      if (top < container.scrollTop + 35)
-        container.scrollTop = Math.max(0, top - 35);
-      else if (
-        top + row.offsetHeight >
-        container.scrollTop + container.clientHeight
-      )
-        container.scrollTop = top + row.offsetHeight - container.clientHeight;
-    }
-  }, [safeStep, preferences.followTrace, preferences.showTrace]);
+
   useEffect(() => {
     const stop = () => {
       dragging.current = false;
@@ -457,26 +357,36 @@ function App() {
     };
   }, []);
   useEffect(() => {
-    if (!toast) return;
+    if (!toast) {
+      return;
+    }
     const timer = window.setTimeout(() => setToast(""), 2600);
     return () => window.clearTimeout(timer);
   }, [toast]);
   useEffect(() => {
-    if (!modal) return;
+    if (!modal) {
+      return;
+    }
     setPlaying(false);
-    const previous = document.activeElement as HTMLElement | null,
-      overflow = document.body.style.overflow;
+    const previous = document.activeElement as HTMLElement | null;
+    const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     modalContainer.current?.querySelector<HTMLButtonElement>("button")?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setModal(null);
-      if (event.key !== "Tab") return;
+      if (event.key === "Escape") {
+        setModal(null);
+      }
+      if (event.key !== "Tab") {
+        return;
+      }
       const controls = modalContainer.current?.querySelectorAll<HTMLElement>(
         'button:not(:disabled), a[href], input, select, [tabindex="0"]',
       );
-      if (!controls?.length) return;
-      const first = controls[0],
-        last = controls[controls.length - 1];
+      if (!controls?.length) {
+        return;
+      }
+      const first = controls[0];
+      const last = controls[controls.length - 1];
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
@@ -494,30 +404,35 @@ function App() {
   }, [modal]);
 
   const togglePlay = useCallback(() => {
-    if (ended) setStep(0);
+    if (ended) {
+      setStep(0);
+    }
     setPlaying((p) => !p);
   }, [ended]);
   useEffect(() => {
-    if (!mobileMenu) return;
+    if (!mobileMenu) {
+      return;
+    }
     setPlaying(false);
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    navigationContainer.current
-      ?.querySelector<HTMLElement>('[aria-current="page"]')
-      ?.focus();
+    navigationContainer.current?.querySelector<HTMLElement>('[aria-current="page"]')?.focus();
     const closeOrTrap = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
         setMobileMenu(false);
       }
-      if (event.key !== "Tab") return;
-      const controls =
-        navigationContainer.current?.querySelectorAll<HTMLElement>(
-          "a[href], button:not(:disabled)",
-        );
-      if (!controls?.length) return;
-      const first = controls[0],
-        last = controls[controls.length - 1];
+      if (event.key !== "Tab") {
+        return;
+      }
+      const controls = navigationContainer.current?.querySelectorAll<HTMLElement>(
+        "a[href], button:not(:disabled)",
+      );
+      if (!controls?.length) {
+        return;
+      }
+      const first = controls[0];
+      const last = controls[controls.length - 1];
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
@@ -535,28 +450,38 @@ function App() {
   }, [mobileMenu]);
   useEffect(() => {
     const keydown = (e: KeyboardEvent) => {
-      if (e.defaultPrevented) return;
+      if (e.defaultPrevented) {
+        return;
+      }
       const el = e.target as HTMLElement;
       if (
         ["INPUT", "SELECT", "TEXTAREA"].includes(el.tagName) ||
         el.isContentEditable ||
         modal ||
         mobileMenu
-      )
+      ) {
         return;
+      }
       if (e.ctrlKey || e.metaKey) {
         if (e.key.toLowerCase() === "z") {
           e.preventDefault();
-          if (e.shiftKey) redo();
-          else undo();
+          if (e.shiftKey) {
+            redo();
+          } else {
+            undo();
+          }
         } else if (e.key.toLowerCase() === "y") {
           e.preventDefault();
           redo();
         }
         return;
       }
-      if (!preferences.shortcuts) return;
-      if (e.altKey || e.isComposing) return;
+      if (!preferences.shortcuts) {
+        return;
+      }
+      if (e.altKey || e.isComposing) {
+        return;
+      }
       if (e.code === "Space" && e.repeat) {
         e.preventDefault();
         return;
@@ -565,17 +490,16 @@ function App() {
         el.closest("button, a, summary, [role='tab']") &&
         (e.code === "Space" || e.code === "Enter")
       ) {
-        if (e.code !== "Space" || !el.closest(".transport")) return;
+        if (e.code !== "Space" || !el.closest(".transport")) {
+          return;
+        }
       }
       if (e.code === "BracketLeft" || e.code === "BracketRight") {
         e.preventDefault();
         const index = playbackSpeeds.indexOf(speed);
         const next = Math.max(
           0,
-          Math.min(
-            playbackSpeeds.length - 1,
-            index + (e.code === "BracketRight" ? 1 : -1),
-          ),
+          Math.min(playbackSpeeds.length - 1, index + (e.code === "BracketRight" ? 1 : -1)),
         );
         updatePreferences({ speed: playbackSpeeds[next] });
       }
@@ -601,7 +525,9 @@ function App() {
         e.preventDefault();
         seek(frames.length - 1);
       }
-      if (e.key.toLowerCase() === "r") reset();
+      if (e.key.toLowerCase() === "r") {
+        reset();
+      }
       if (e.key === "?") {
         e.preventDefault();
         openModal("help");
@@ -632,7 +558,9 @@ function App() {
     setModal(next);
   }
   function restore(next: Experiment, record = true) {
-    if (record) remember();
+    if (record) {
+      remember();
+    }
     reset();
     setCategory(next.category);
     setAlgorithmId(next.algorithmId);
@@ -650,14 +578,18 @@ function App() {
     setError("");
   }
   function undo() {
-    if (!past.length) return;
+    if (!past.length) {
+      return;
+    }
     setFuture((previous) => [experiment, ...previous].slice(0, 30));
     const next = past[past.length - 1];
     setPast(past.slice(0, -1));
     restore(next, false);
   }
   function redo() {
-    if (!future.length) return;
+    if (!future.length) {
+      return;
+    }
     setPast((previous) => [...previous.slice(-29), experiment]);
     const next = future[0];
     setFuture(future.slice(1));
@@ -665,35 +597,43 @@ function App() {
   }
   function categoryKey(event: React.KeyboardEvent, index: number) {
     let next = index;
-    if (event.key === "ArrowRight") next = (index + 1) % categories.length;
-    else if (event.key === "ArrowLeft")
+    if (event.key === "ArrowRight") {
+      next = (index + 1) % categories.length;
+    } else if (event.key === "ArrowLeft") {
       next = (index + categories.length - 1) % categories.length;
-    else if (event.key === "Home") next = 0;
-    else if (event.key === "End") next = categories.length - 1;
-    else return;
+    } else if (event.key === "Home") {
+      next = 0;
+    } else if (event.key === "End") {
+      next = categories.length - 1;
+    } else {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     changeCategory(categories[next].id);
     (event.currentTarget.parentElement?.children[next] as HTMLElement)?.focus();
   }
-  function mazeKey(
-    event: React.KeyboardEvent<HTMLButtonElement>,
-    index: number,
-  ) {
-    const row = Math.floor(index / COLS),
-      col = index % COLS;
+  function mazeKey(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
+    const row = Math.floor(index / COLS);
+    const col = index % COLS;
     let next = index;
-    if (event.key === "ArrowRight" && col < COLS - 1) next++;
-    else if (event.key === "ArrowLeft" && col > 0) next--;
-    else if (event.key === "ArrowUp" && row > 0) next -= COLS;
-    else if (event.key === "ArrowDown" && row < ROWS - 1) next += COLS;
-    else if (event.key === "Enter" || event.key === " ") {
+    if (event.key === "ArrowRight" && col < COLS - 1) {
+      next++;
+    } else if (event.key === "ArrowLeft" && col > 0) {
+      next--;
+    } else if (event.key === "ArrowUp" && row > 0) {
+      next -= COLS;
+    } else if (event.key === "ArrowDown" && row < ROWS - 1) {
+      next += COLS;
+    } else if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       event.stopPropagation();
       editCell(index, true);
       dragging.current = false;
       return;
-    } else if (!event.key.startsWith("Arrow")) return;
+    } else if (!event.key.startsWith("Arrow")) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     setMazeFocus(next);
@@ -704,9 +644,7 @@ function App() {
       await navigator.clipboard.writeText(text);
       setToast(success);
     } catch {
-      setToast(
-        "コピーできませんでした。共有リンク欄から手動でコピーできます。",
-      );
+      setToast("コピーできませんでした。共有リンク欄から手動でコピーできます。");
     }
   }
   function exportExperiment() {
@@ -720,10 +658,13 @@ function App() {
   async function importExperiment(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file) return;
+    if (!file) {
+      return;
+    }
     try {
-      if (file.size > 65536)
+      if (file.size > 65536) {
         throw new Error("実験ファイルは64 KB以下にしてください。");
+      }
       restore(parseExperiment(await file.text()));
       setToast("実験を読み込みました。");
     } catch (error) {
@@ -732,23 +673,31 @@ function App() {
   }
   async function toggleFullscreen() {
     try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else await document.documentElement.requestFullscreen();
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
     } catch {
       setToast("このブラウザーでは全画面表示を利用できません。");
     }
   }
   function applyPreset(preset: string) {
-    if (!preset) return;
+    if (!preset) {
+      return;
+    }
     remember();
     reset();
     setError("");
     if (category === "maze") {
-      const next =
-        preset === "empty" ? Array(ROWS * COLS).fill(0) : initialMaze();
-      if (preset === "weighted")
-        for (let c = 2; c < COLS - 2; c++)
-          if (next[COLS + c] !== 1) next[COLS + c] = 5;
+      const next = preset === "empty" ? Array(ROWS * COLS).fill(0) : initialMaze();
+      if (preset === "weighted") {
+        for (let c = 2; c < COLS - 2; c++) {
+          if (next[COLS + c] !== 1) {
+            next[COLS + c] = 5;
+          }
+        }
+      }
       setGrid(next);
       setStart(START);
       setGoal(GOAL);
@@ -764,12 +713,21 @@ function App() {
             : category === "game"
               ? [...defaultGame]
               : [...defaultSort];
-    if (preset === "reverse") next.sort((a, b) => b - a);
-    if (preset === "duplicates") next = [8, 3, 8, 1, 3, 5, 8, 5];
-    if (preset === "negative") next = [-12, 7, -3, 0, 15, -8, 4];
-    if (preset === "skewed") next = Array.from({ length: 15 }, (_, i) => i + 1);
-    if (category === "array" && algorithmId !== "linear")
+    if (preset === "reverse") {
+      next.sort((a, b) => b - a);
+    }
+    if (preset === "duplicates") {
+      next = [8, 3, 8, 1, 3, 5, 8, 5];
+    }
+    if (preset === "negative") {
+      next = [-12, 7, -3, 0, 15, -8, 4];
+    }
+    if (preset === "skewed") {
+      next = Array.from({ length: 15 }, (_, i) => i + 1);
+    }
+    if (category === "array" && algorithmId !== "linear") {
       next.sort((a, b) => a - b);
+    }
     setData((previous) => ({ ...previous, [category]: next }));
     setRaw(next.join(", "));
   }
@@ -780,7 +738,9 @@ function App() {
     setAlgorithmId(selections[next] ?? categoryDefaults[next]);
     setError("");
     setMobileMenu(false);
-    if (next !== "maze") setRaw(data[next].join(", "));
+    if (next !== "maze") {
+      setRaw(data[next].join(", "));
+    }
     setView(next === "sort" ? "bars" : "boxes");
   }
   function changeAlgorithm(id: AlgorithmId) {
@@ -799,16 +759,20 @@ function App() {
   function updateData() {
     try {
       let numbers = parseValues(raw, category === "tree" ? 31 : 32);
-      if (category === "tree") numbers = [...new Set(numbers)];
+      if (category === "tree") {
+        numbers = [...new Set(numbers)];
+      }
       if (category === "array" && algorithmId !== "linear") {
         const sorted = [...numbers].sort((a, b) => a - b);
-        if (numbers.some((v, i) => v !== sorted[i]))
+        if (numbers.some((v, i) => v !== sorted[i])) {
           setToast("入力値を昇順に整列して適用しました。");
+        }
         numbers = sorted;
       }
       remember();
-      if (category !== "maze")
+      if (category !== "maze") {
         setData((prev) => ({ ...prev, [category]: numbers }));
+      }
       setRaw(numbers.join(", "));
       setError("");
       reset();
@@ -846,13 +810,16 @@ function App() {
           ? Math.floor(Math.random() * 21) - 10
           : Math.floor(Math.random() * 96) + 3,
     );
-    if (category === "array" && algorithmId !== "linear")
+    if (category === "array" && algorithmId !== "linear") {
       next.sort((a, b) => a - b);
+    }
     if (category === "tree") {
       const sorted = [...new Set(next)].sort((a, b) => a - b);
       next = [];
       const balance = (a: number[]) => {
-        if (!a.length) return;
+        if (!a.length) {
+          return;
+        }
         const m = Math.floor(a.length / 2);
         next.push(a[m]);
         balance(a.slice(0, m));
@@ -869,7 +836,9 @@ function App() {
     }
   }
   function pickTarget(value: number) {
-    if (value !== target) remember();
+    if (value !== target) {
+      remember();
+    }
     setTarget(value);
     setTargetInput(String(value));
     reset();
@@ -879,92 +848,39 @@ function App() {
     setStep(Math.max(0, Math.min(frames.length - 1, Math.round(value))));
   }
   function editCell(i: number, first = false) {
-    if (!first && !dragging.current) return;
+    if (!first && !dragging.current) {
+      return;
+    }
     if (paint === "start" || paint === "goal") {
-      if (!first || i === (paint === "start" ? goal : start)) return;
+      if (!first || i === (paint === "start" ? goal : start)) {
+        return;
+      }
       remember();
       reset();
-      if (paint === "start") setStart(i);
-      else setGoal(i);
+      if (paint === "start") {
+        setStart(i);
+      } else {
+        setGoal(i);
+      }
       setGrid((prev) => prev.map((v, j) => (i === j ? 0 : v)));
       return;
     }
-    if (i === start || i === goal) return;
+    if (i === start || i === goal) {
+      return;
+    }
     if (first) {
       remember();
       dragging.current = true;
-      dragValue.current =
-        paint === "erase" ? 0 : paint === "weight" ? 5 : grid[i] === 1 ? 0 : 1;
+      dragValue.current = paint === "erase" ? 0 : paint === "weight" ? 5 : grid[i] === 1 ? 0 : 1;
     }
     reset();
     setGrid((prev) =>
-      prev[i] === dragValue.current
-        ? prev
-        : prev.map((v, j) => (i === j ? dragValue.current : v)),
+      prev[i] === dragValue.current ? prev : prev.map((v, j) => (i === j ? dragValue.current : v)),
     );
   }
   function downloadTrace() {
-    const rows = [
-      [
-        "ステップ",
-        "現在位置",
-        "値",
-        "left",
-        "mid",
-        "right",
-        "深さ",
-        "深さ上限",
-        "g（実コスト）",
-        "h（予測）",
-        "f（評価値）",
-        "α",
-        "β",
-        "根の評価値・総和・成否",
-        "枝刈りノード",
-        "比較・訪問回数",
-        "交換回数",
-        "移動コスト",
-        "説明",
-      ],
-      ...frames.map((f, i) => [
-        i,
-        f.active.join(" / "),
-        f.active
-          .map((n) =>
-            category === "maze"
-              ? `(${Math.floor(n / COLS)},${n % COLS})`
-              : isGraph
-                ? formatNodeScore(f, n)
-                : f.array[n],
-          )
-          .join(" / "),
-        f.left ?? "",
-        f.mid ?? "",
-        f.right ?? "",
-        f.depth ?? "",
-        f.depthLimit ?? "",
-        f.g ?? "",
-        f.h ?? "",
-        f.f ?? "",
-        f.alpha === undefined ? "" : formatScore(f.alpha),
-        f.beta === undefined ? "" : formatScore(f.beta),
-        f.value ?? "",
-        f.pruned?.join(" / ") ?? "",
-        f.comparisons,
-        f.swaps,
-        f.cost ?? "",
-        f.message,
-      ]),
-    ];
-    const csv =
-      "\uFEFF" +
-      rows
-        .map((row) =>
-          row.map((v) => `"${String(v).replaceAll('"', '""')}"`).join(","),
-        )
-        .join("\r\n");
     downloadFile(
-      csv,
+      traceCsv(frames, category),
       `tansaku-${algorithmId}-trace.csv`,
       "text/csv;charset=utf-8;",
     );
@@ -992,9 +908,7 @@ function App() {
         aria-label="実験ファイルを選択"
         onChange={importExperiment}
       />
-      {mobileMenu && (
-        <div className="sidebar-scrim" onClick={() => setMobileMenu(false)} />
-      )}
+      {mobileMenu && <div className="sidebar-scrim" onClick={() => setMobileMenu(false)} />}
       <aside
         ref={navigationContainer}
         id="lab-navigation"
@@ -1042,9 +956,7 @@ function App() {
               <c.icon size={18} />
               <span>{c.name}</span>
               <span className="nav-count">
-                {String(
-                  algorithms.filter((a) => a.category === c.id).length,
-                ).padStart(2, "0")}
+                {String(algorithms.filter((a) => a.category === c.id).length).padStart(2, "0")}
               </span>
             </button>
           ))}
@@ -1060,11 +972,7 @@ function App() {
           <BookOpen size={18} />
           <span>使い方ガイド</span>
         </button>
-        <button
-          className="nav-item"
-          onClick={() => openModal("learning")}
-          aria-label="学習の冒険"
-        >
+        <button className="nav-item" onClick={() => openModal("learning")} aria-label="学習の冒険">
           <Gem size={18} />
           <span>学習の冒険</span>
         </button>
@@ -1084,10 +992,7 @@ function App() {
           </button>
         </div>
       </aside>
-      <div
-        className="main-shell"
-        inert={mobileMenu || modal ? true : undefined}
-      >
+      <div className="main-shell" inert={mobileMenu || modal ? true : undefined}>
         <header className="topbar">
           <div className="breadcrumbs">
             <button
@@ -1108,9 +1013,7 @@ function App() {
                 })
               }
               aria-label={
-                preferences.sidebarCollapsed
-                  ? "サイドバーを展開"
-                  : "サイドバーを折りたたむ"
+                preferences.sidebarCollapsed ? "サイドバーを展開" : "サイドバーを折りたたむ"
               }
             >
               <PanelLeftClose size={18} />
@@ -1124,9 +1027,7 @@ function App() {
               <button
                 aria-label="文字サイズを縮小"
                 disabled={preferences.fontSize <= 80}
-                onClick={() =>
-                  updatePreferences({ fontSize: preferences.fontSize - 5 })
-                }
+                onClick={() => updatePreferences({ fontSize: preferences.fontSize - 5 })}
               >
                 A−
               </button>
@@ -1134,9 +1035,7 @@ function App() {
               <button
                 aria-label="文字サイズを拡大"
                 disabled={preferences.fontSize >= 160}
-                onClick={() =>
-                  updatePreferences({ fontSize: preferences.fontSize + 5 })
-                }
+                onClick={() => updatePreferences({ fontSize: preferences.fontSize + 5 })}
               >
                 A＋
               </button>
@@ -1144,9 +1043,7 @@ function App() {
             <button
               className="icon-button"
               aria-label={
-                resolvedTheme === "dark"
-                  ? "ライトテーマに切り替え"
-                  : "ダークテーマに切り替え"
+                resolvedTheme === "dark" ? "ライトテーマに切り替え" : "ダークテーマに切り替え"
               }
               onClick={() =>
                 updatePreferences({
@@ -1154,11 +1051,7 @@ function App() {
                 })
               }
             >
-              {resolvedTheme === "dark" ? (
-                <Sun size={18} />
-              ) : (
-                <Moon size={18} />
-              )}
+              {resolvedTheme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
             </button>
             <button
               className="settings-button secondary-button"
@@ -1174,9 +1067,7 @@ function App() {
             <div>
               <h1>{categoryInfo.name}</h1>
             </div>
-            <p className="learning-prompt">
-              次の変化を予想して、1ステップ進めよう。
-            </p>
+            <p className="learning-prompt">次の変化を予想して、1ステップ進めよう。</p>
           </section>
           <div className="category-tabs" role="tablist" aria-label="カテゴリー">
             {categories.map((c) => (
@@ -1196,10 +1087,7 @@ function App() {
             ))}
           </div>
 
-          <section
-            className="setup-card card"
-            aria-label="アルゴリズムとデータの設定"
-          >
+          <section className="setup-card card" aria-label="アルゴリズムとデータの設定">
             <div className="setup-top">
               <div className="algorithm-select-wrap">
                 <div className="algorithm-icon">
@@ -1211,9 +1099,7 @@ function App() {
                     <select
                       id="algorithm"
                       value={algorithmId}
-                      onChange={(e) =>
-                        changeAlgorithm(e.target.value as AlgorithmId)
-                      }
+                      onChange={(e) => changeAlgorithm(e.target.value as AlgorithmId)}
                     >
                       {algorithms
                         .filter((a) => a.category === category)
@@ -1261,9 +1147,7 @@ function App() {
                     <option value="reverse">逆順</option>
                     <option value="duplicates">重複あり</option>
                     <option value="negative">負の数</option>
-                    {category === "tree" && (
-                      <option value="skewed">偏った木</option>
-                    )}
+                    {category === "tree" && <option value="skewed">偏った木</option>}
                   </>
                 )}
               </select>
@@ -1289,7 +1173,9 @@ function App() {
                       value={raw}
                       onChange={(e) => setRaw(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") updateData();
+                        if (e.key === "Enter") {
+                          updateData();
+                        }
                       }}
                       aria-invalid={!!error}
                       aria-describedby={error ? "data-error" : undefined}
@@ -1318,10 +1204,7 @@ function App() {
                     />
                   </div>
                 )}
-                <button
-                  className="secondary-button randomize"
-                  onClick={randomize}
-                >
+                <button className="secondary-button randomize" onClick={randomize}>
                   <Shuffle size={15} />
                   ランダム生成
                 </button>
@@ -1391,10 +1274,7 @@ function App() {
             )}
           </section>
 
-          <section
-            className="learning-workspace"
-            aria-label="同期実行ワークスペース"
-          >
+          <section className="learning-workspace" aria-label="同期実行ワークスペース">
             <div className="workspace-caption">
               <span>
                 <span className="sync-mark" /> 可視化とコードを同期
@@ -1423,10 +1303,7 @@ function App() {
             <div
               className={`workspace-grid ${!preferences.showCode || preferences.layout === "focus" ? "no-code" : ""} ${preferences.codePosition === "left" ? "code-left" : ""}`}
             >
-              <section
-                className="visualizer-card card"
-                aria-label="アルゴリズムの可視化"
-              >
+              <section className="visualizer-card card" aria-label="アルゴリズムの可視化">
                 <div className="panel-heading">
                   <div className="panel-title">
                     <span className="tiny-icon">
@@ -1471,10 +1348,7 @@ function App() {
                   )}
                 </div>
                 {preferences.showCode && preferences.layout !== "focus" && (
-                  <CurrentInstruction
-                    lines={algorithm.code}
-                    line={frame.line}
-                  />
+                  <CurrentInstruction lines={algorithm.code} line={frame.line} />
                 )}
                 <div className="legend">
                   <span>
@@ -1487,11 +1361,7 @@ function App() {
                   </span>
                   <span>
                     <i
-                      className={
-                        category === "sort"
-                          ? "legend-compare"
-                          : "legend-current"
-                      }
+                      className={category === "sort" ? "legend-compare" : "legend-current"}
                       aria-hidden="true"
                     />
                     {category === "sort" ? "比較中" : "現在の位置"}
@@ -1572,11 +1442,7 @@ function App() {
                     frame={frame}
                   />
                 ) : category === "tree" ? (
-                  <TreeDiagram
-                    values={values}
-                    frame={frame}
-                    onPick={pickTarget}
-                  />
+                  <TreeDiagram values={values} frame={frame} onPick={pickTarget} />
                 ) : (
                   <ArrayDiagram
                     frame={frame}
@@ -1594,8 +1460,7 @@ function App() {
                   <span className="explanation-icon">
                     {frame.result === "found" || frame.result === "complete" ? (
                       <CheckCircle2 size={18} />
-                    ) : frame.result === "missing" ||
-                      frame.result === "limited" ? (
+                    ) : frame.result === "missing" || frame.result === "limited" ? (
                       <CircleHelp size={18} />
                     ) : (
                       <MousePointer2 size={18} />
@@ -1621,108 +1486,14 @@ function App() {
                   </div>
                 </div>
               </section>
-              <section
-                className="code-card card"
-                aria-label="擬似コードと解説"
+              <CodePanel
+                algorithm={algorithm}
+                category={category}
+                frame={frame}
                 hidden={!preferences.showCode || preferences.layout === "focus"}
-              >
-                <div className="code-tabs">
-                  <button
-                    className={codeTab === "code" ? "active" : ""}
-                    onClick={() => setCodeTab("code")}
-                  >
-                    <Code2 size={16} />
-                    擬似コード
-                  </button>
-                  <button
-                    className={codeTab === "about" ? "active" : ""}
-                    onClick={() => setCodeTab("about")}
-                  >
-                    <BookOpen size={15} />
-                    仕組み
-                  </button>
-                  <span>Python</span>
-                </div>
-                {codeTab === "code" ? (
-                  <div className="code-content">
-                    <div className="code-filename">
-                      <i /> {algorithmId.replaceAll("-", "_")}_search.py{" "}
-                      <span>学習用</span>
-                      <button
-                        className="icon-button"
-                        aria-label="擬似コードをコピー"
-                        onClick={() =>
-                          copyText(
-                            algorithm.code.join("\n"),
-                            "擬似コードをコピーしました。",
-                          )
-                        }
-                      >
-                        <Copy size={14} />
-                      </button>
-                    </div>
-                    <div className="code-lines">
-                      {algorithm.code.map((line, i) => (
-                        <div
-                          key={i}
-                          ref={frame.line === i ? activeCodeLine : undefined}
-                          aria-current={frame.line === i ? "step" : undefined}
-                          className={`code-line ${frame.line === i ? "highlighted" : ""}`}
-                        >
-                          <span className="line-indicator">
-                            {frame.line === i ? "›" : ""}
-                          </span>
-                          <span className="line-number">{i + 1}</span>
-                          <code>{colorCode(line)}</code>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="code-footnote">
-                      <span className="code-dot" />
-                      対応行を表示 · 全行の逐次実行ではありません
-                    </div>
-                  </div>
-                ) : (
-                  <div className="about-content">
-                    <span className="tag">HOW IT WORKS</span>
-                    <h3>{algorithm.name}の仕組み</h3>
-                    <p>{algorithm.description}</p>
-                    <ul>
-                      {algorithm.points.map((point, i) => (
-                        <li key={point}>
-                          <span>{i + 1}</span>
-                          {point}
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="about-complexity">
-                      <Clock3 size={15} />
-                      最悪時間 <b>{algorithm.time}</b>
-                      <Layers3 size={15} />
-                      空間 <b>{algorithm.space}</b>
-                    </div>
-                  </div>
-                )}
-                <details className="code-tip">
-                  <summary>観察のヒント</summary>
-                  <span>
-                    <Sparkles size={15} />
-                  </span>
-                  <p>
-                    {category === "array"
-                      ? "探索する値を変えると、比較する場所も変わります。配列の値をクリックして試してみましょう。"
-                      : category === "maze"
-                        ? "同じ迷路で BFS と DFS を切り替えて、訪問する順番と経路の違いを観察しましょう。"
-                        : category === "tree"
-                          ? "挿入順を昇順にしてみると、木が一直線に。木の高さと探索回数の関係を発見できます。"
-                          : category === "game"
-                            ? "同じ終端評価でミニマックス法とアルファベータ法を比べ、答えと訪問数を確認しましょう。"
-                            : category === "problem"
-                              ? "SUM は左右の答えを結合します。AND/OR では、両方が必要な問題と選べる問題の違いを観察しましょう。"
-                              : "ほぼ整列された配列では、どの方法が有利でしょう？ データを変えて比較してみましょう。"}
-                  </p>
-                </details>
-              </section>
+                layout={preferences.layout}
+                onCopy={copyText}
+              />
             </div>
           </section>
 
@@ -1806,13 +1577,7 @@ function App() {
           <div className="stats-row" hidden={!preferences.showStats}>
             <Stat
               icon={category === "maze" ? Workflow : Search}
-              label={
-                category === "maze"
-                  ? "累積訪問回数"
-                  : isGraph
-                    ? "訪問ノード数"
-                    : "比較回数"
-              }
+              label={category === "maze" ? "累積訪問回数" : isGraph ? "訪問ノード数" : "比較回数"}
               value={frame.comparisons}
               unit="回"
               detail={
@@ -1853,9 +1618,7 @@ function App() {
                         : "—"
                       : target
               }
-              unit={
-                category === "sort" ? "回" : category === "maze" ? "歩" : ""
-              }
+              unit={category === "sort" ? "回" : category === "maze" ? "歩" : ""}
               detail={
                 isGraph
                   ? "最終結果まで進むと表示"
@@ -1895,21 +1658,16 @@ function App() {
                       ? `${frame.depth ?? "—"} / ${frame.depthLimit ?? 0}`
                       : (frame.frontier?.length ?? 0)
                     : category === "tree"
-                      ? Math.max(0, ...buildTree(values).map((n) => n.depth)) +
-                        1
+                      ? Math.max(0, ...buildTree(values).map((n) => n.depth)) + 1
                       : category === "sort"
                         ? values.length
                         : frame.result === "missing"
                           ? 0
                           : frame.result === "found"
                             ? 1
-                            : frame.left !== undefined &&
-                                frame.right !== undefined
+                            : frame.left !== undefined && frame.right !== undefined
                               ? frame.right - frame.left + 1
-                              : Math.max(
-                                  0,
-                                  values.length - frame.visited.length,
-                                )
+                              : Math.max(0, values.length - frame.visited.length)
               }
               unit={
                 category === "maze"
@@ -1996,9 +1754,7 @@ function App() {
                 onClick={() => {
                   const next = frames.findIndex(
                     (f, i) =>
-                      i > safeStep &&
-                      f.line === 0 &&
-                      f.depthLimit! > (frame.depthLimit ?? 0),
+                      i > safeStep && f.line === 0 && f.depthLimit! > (frame.depthLimit ?? 0),
                   );
                   seek(next < 0 ? frames.length - 1 : next);
                 }}
@@ -2009,188 +1765,15 @@ function App() {
             )}
             <span>Shift＋← / → で10ステップ移動</span>
           </div>
-          <section className="trace-card card" hidden={!preferences.showTrace}>
-            <div className="panel-heading">
-              <div className="panel-title">
-                <span className="tiny-icon">
-                  <ListFilter size={17} />
-                </span>
-                <h2>トレース</h2>
-                <span className="muted">実行の足あと</span>
-              </div>
-              <div className="trace-actions">
-                <div className="trace-toggle">
-                  <button
-                    className={traceTab === "table" ? "active" : ""}
-                    onClick={() => setTraceTab("table")}
-                  >
-                    トレース表
-                  </button>
-                  <button
-                    className={traceTab === "chart" ? "active" : ""}
-                    onClick={() => setTraceTab("chart")}
-                  >
-                    推移チャート
-                  </button>
-                </div>
-                <button
-                  className="secondary-button export-button"
-                  onClick={downloadTrace}
-                >
-                  <Download size={14} />
-                  CSV
-                </button>
-              </div>
-            </div>
-            {traceTab === "table" ? (
-              <div className="trace-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>ステップ</th>
-                      <th>
-                        {category === "maze" ? "現在のマス" : "現在の位置"}
-                      </th>
-                      <th>{category === "maze" ? "コスト" : "値"}</th>
-                      {category === "array" && (
-                        <>
-                          <th>left</th>
-                          <th>mid / i</th>
-                          <th>right</th>
-                        </>
-                      )}
-                      <th>
-                        {category === "maze"
-                          ? "累積訪問数"
-                          : isGraph
-                            ? "訪問ノード数"
-                            : "比較数"}
-                      </th>
-                      {isGraph && (
-                        <>
-                          <th>根の結果</th>
-                          <th>α</th>
-                          <th>β</th>
-                          <th>枝刈り数</th>
-                        </>
-                      )}
-                      {category === "maze" && (
-                        <>
-                          <th>深さ / 上限</th>
-                          <th>g</th>
-                          <th>h</th>
-                          <th>f</th>
-                        </>
-                      )}
-                      <th>動作・判定</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {frames
-                      .slice(Math.max(0, safeStep - 199), safeStep + 1)
-                      .map((f, offset) => {
-                        const i = Math.max(0, safeStep - 199) + offset;
-                        return (
-                          <tr
-                            key={i}
-                            ref={i === safeStep ? currentTrace : undefined}
-                            className={`${i === safeStep ? "current-row" : ""} ${f.result === "found" || f.result === "complete" ? "success-row" : ""}`}
-                            onClick={() => seek(i)}
-                            tabIndex={0}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") seek(i);
-                            }}
-                            aria-label={`ステップ ${i} に移動`}
-                          >
-                            <td>
-                              <span className="step-cell">
-                                {i === safeStep ? (
-                                  <ArrowRight size={12} />
-                                ) : (
-                                  <span />
-                                )}
-                                {String(i).padStart(2, "0")}
-                              </span>
-                            </td>
-                            <td>
-                              {f.active.length
-                                ? f.active
-                                    .map((n) =>
-                                      category === "maze"
-                                        ? `(${Math.floor(n / COLS)}, ${n % COLS})`
-                                        : `${category === "tree" || isGraph ? "ノード" : "a"}[${n}]`,
-                                    )
-                                    .join(", ")
-                                : "—"}
-                            </td>
-                            <td className="trace-value">
-                              {category === "maze"
-                                ? (f.cost ?? "—")
-                                : f.active.length
-                                  ? f.active
-                                      .map((n) =>
-                                        isGraph
-                                          ? formatNodeScore(f, n)
-                                          : f.array[n],
-                                      )
-                                      .join(", ")
-                                  : "—"}
-                            </td>
-                            {category === "array" && (
-                              <>
-                                <td>{f.left ?? "—"}</td>
-                                <td>{f.mid ?? "—"}</td>
-                                <td>{f.right ?? "—"}</td>
-                              </>
-                            )}
-                            <td>{f.comparisons}</td>
-                            {isGraph && (
-                              <>
-                                <td>{formatScore(f.value)}</td>
-                                <td>{formatScore(f.alpha)}</td>
-                                <td>{formatScore(f.beta)}</td>
-                                <td>{f.pruned?.length ?? 0}</td>
-                              </>
-                            )}
-                            {category === "maze" && (
-                              <>
-                                <td>
-                                  {f.depth !== undefined
-                                    ? `${f.depth} / ${f.depthLimit}`
-                                    : "—"}
-                                </td>
-                                <td>{f.g ?? "—"}</td>
-                                <td>{f.h ?? "—"}</td>
-                                <td>{f.f ?? "—"}</td>
-                              </>
-                            )}
-                            <td className="trace-message">
-                              {i === 0 ? "初期状態" : f.message}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <TraceChart
-                frames={frames.slice(0, safeStep + 1)}
-                category={category}
-                onSeek={seek}
-              />
-            )}
-            <div className="trace-footer">
-              <span>
-                <i />
-                現在までの直近200ステップを表示
-              </span>
-              <span>
-                {safeStep + 1} 行 <span className="footer-divider">|</span>{" "}
-                行をクリックして、その時点へ
-              </span>
-            </div>
-          </section>
+          <TracePanel
+            frames={frames}
+            category={category}
+            step={safeStep}
+            hidden={!preferences.showTrace}
+            followTrace={preferences.followTrace}
+            onSeek={seek}
+            onExport={downloadTrace}
+          />
           <div className="bottom-note">
             <span>
               <Sparkles size={14} />
@@ -2258,10 +1841,7 @@ function App() {
                 onClaim={() => {
                   setLearning((previous) =>
                     openDailyChest(
-                      mergeLearning(
-                        previous,
-                        readStored(LEARNING_KEY, previous, sanitizeLearning),
-                      ),
+                      mergeLearning(previous, readStored(LEARNING_KEY, previous, sanitizeLearning)),
                       today,
                     ),
                   );
@@ -2290,9 +1870,7 @@ function App() {
                 />
                 <button
                   className="play-button share-copy"
-                  onClick={() =>
-                    copyText(shareUrl, "共有リンクをコピーしました。")
-                  }
+                  onClick={() => copyText(shareUrl, "共有リンクをコピーしました。")}
                 >
                   <Copy size={15} />
                   リンクをコピー
@@ -2318,765 +1896,6 @@ function App() {
         </div>
       )}
     </div>
-  );
-}
-
-function downloadFile(contents: string, filename: string, type: string) {
-  const url = URL.createObjectURL(new Blob([contents], { type }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function colorCode(line: string) {
-  return line
-    .split(
-      /(\b(?:def|for|in|if|elif|else|while|return|and|or|not|is|None|True|False|break)\b|\b\d+\b|\btarget\b)/g,
-    )
-    .map((part, i) => (
-      <span
-        key={i}
-        className={
-          /^(def|for|in|if|elif|else|while|return|and|or|not|is|None|True|False|break)$/.test(
-            part,
-          )
-            ? "syntax-keyword"
-            : /^\d+$/.test(part)
-              ? "syntax-number"
-              : part === "target"
-                ? "syntax-target"
-                : ""
-        }
-      >
-        {part}
-      </span>
-    ));
-}
-
-function MazeSettings({
-  algorithmId,
-  heuristicWeight,
-  maxDepth,
-  onWeight,
-  onDepth,
-}: {
-  algorithmId: AlgorithmId;
-  heuristicWeight: number;
-  maxDepth: number;
-  onWeight: (n: number) => void;
-  onDepth: (n: number) => void;
-}) {
-  if (algorithmId === "iddfs")
-    return (
-      <div className="search-options">
-        <label htmlFor="depth-limit">
-          深さの上限
-          <select
-            id="depth-limit"
-            value={maxDepth}
-            onChange={(e) => onDepth(Number(e.target.value))}
-          >
-            <option value={0}>自動（通路数 − 1）</option>
-            {[8, 16, 32, 64, 128].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-        </label>
-        <p>
-          上限を1ずつ広げて再探索。訪問は累積で表示します。30,000回で停止し「上限到達」と表示します。
-        </p>
-      </div>
-    );
-  if (algorithmId === "a-search")
-    return (
-      <div className="search-options">
-        <label htmlFor="heuristic-weight">
-          予測の係数 α
-          <select
-            id="heuristic-weight"
-            value={heuristicWeight}
-            onChange={(e) => onWeight(Number(e.target.value))}
-          >
-            {[0, 0.5, 1, 1.5, 2, 3, 5].map((n) => (
-              <option key={n} value={n}>
-                {n}
-                {n === 0 ? "（ダイクストラ）" : n === 1 ? "（A* と同じ）" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-        <p>
-          f = g + α × マンハッタン距離。
-          {heuristicWeight <= 1
-            ? "現在の予測は過大評価しないため、最小コストを保証します。"
-            : "α > 1 は予測を強めます。最小コストを保証しません。"}
-        </p>
-      </div>
-    );
-  if (algorithmId === "greedy")
-    return (
-      <div className="search-options">
-        <span className="evaluation-formula">f(n) = h(n)</span>
-        <p>
-          ゴールまでの予測だけで次の候補を選びます。g
-          は経路コストとして記録します。
-        </p>
-      </div>
-    );
-  return null;
-}
-
-function MazeEvaluation({
-  algorithmId,
-  frame,
-  heuristicWeight,
-}: {
-  algorithmId: AlgorithmId;
-  frame: Frame;
-  heuristicWeight: number;
-}) {
-  if (algorithmId === "iddfs")
-    return (
-      <div className="maze-evaluation">
-        <span>今回の探索</span>
-        <strong>
-          深さ {frame.depth ?? "—"} <span>/ 上限 {frame.depthLimit ?? 0}</span>
-        </strong>
-        <span>
-          累積訪問 <b>{frame.comparisons}</b> 回
-        </span>
-        <small>濃い緑：現在たどっている経路</small>
-      </div>
-    );
-  if (!["greedy", "a-search", "astar", "dijkstra"].includes(algorithmId))
-    return null;
-  return (
-    <div className="maze-evaluation">
-      <span className="evaluation-formula">
-        {algorithmId === "greedy"
-          ? "f = h"
-          : algorithmId === "dijkstra"
-            ? "f = g"
-            : `f = g + ${algorithmId === "a-search" ? heuristicWeight : 1} × 距離`}
-      </span>
-      <span>
-        g <b>{frame.g ?? "—"}</b>
-      </span>
-      <span>
-        h <b>{frame.h ?? "—"}</b>
-      </span>
-      <span>
-        f <b>{frame.f ?? "—"}</b>
-      </span>
-      <small>g：実コスト ／ h：残りの予測</small>
-    </div>
-  );
-}
-
-function ArrayDiagram({
-  frame,
-  target,
-  view,
-  category,
-  onPick,
-}: {
-  frame: Frame;
-  target: number;
-  view: "boxes" | "bars";
-  category: Category;
-  onPick: (n: number) => void;
-}) {
-  const viewport = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const pane = viewport.current;
-    const cell = pane?.querySelector<HTMLElement>(
-      ".array-column.active, .array-column.found",
-    );
-    if (!pane || !cell) return;
-    const cellBox = cell.getBoundingClientRect(),
-      paneBox = pane.getBoundingClientRect();
-    if (cellBox.left < paneBox.left || cellBox.right > paneBox.right)
-      pane.scrollLeft +=
-        cellBox.left - paneBox.left - (pane.clientWidth - cellBox.width) / 2;
-  }, [frame, view]);
-  const low = frame.left ?? 0,
-    high = frame.right ?? frame.array.length - 1;
-  const min = Math.min(0, ...frame.array),
-    max = Math.max(1, ...frame.array);
-  return (
-    <div className={`array-canvas ${view}`}>
-      <div className="canvas-topline">
-        <span>
-          {category === "sort" ? "ARRAY → ASCENDING" : "ARRAY"}
-          <span className="mono">[{frame.array.length}]</span>
-        </span>
-        {category !== "sort" && (
-          <span className="target-pill">
-            <Target size={12} />
-            target <b>{target}</b>
-          </span>
-        )}
-      </div>
-      {category === "array" && frame.active.length > 0 && (
-        <div className="comparison-readout" aria-label="値の比較">
-          <span>比較</span>
-          <code>
-            a[{frame.active[0]}] = {frame.array[frame.active[0]]}{" "}
-            <b>
-              {frame.array[frame.active[0]] === target
-                ? "="
-                : frame.array[frame.active[0]] < target
-                  ? "<"
-                  : ">"}
-            </b>{" "}
-            target ({target})
-          </code>
-        </div>
-      )}
-      <div className="array-scroll" ref={viewport}>
-        <div
-          className="array-track"
-          style={
-            {
-              "--array-length": frame.array.length,
-              gridTemplateColumns: `repeat(${frame.array.length}, minmax(${frame.array.length > 20 ? "33" : "38"}px, 1fr))`,
-            } as React.CSSProperties
-          }
-        >
-          {frame.array.map((value, i) => {
-            const active = frame.active.includes(i),
-              found = frame.found.includes(i),
-              visited = frame.visited.includes(i),
-              inRange = i >= low && i <= high;
-            return (
-              <div
-                key={i}
-                className={`array-column ${category === "sort" ? "sorting" : ""} ${found ? "found" : active ? "active" : !inRange ? "excluded" : visited ? "visited" : "in-range"}`}
-              >
-                <div className="pointer-label">
-                  {active && !found ? (
-                    <>
-                      <ArrowDown size={15} />
-                      <span>
-                        {category === "sort"
-                          ? "比較"
-                          : frame.mid === i
-                            ? "mid"
-                            : "i"}
-                      </span>
-                    </>
-                  ) : found ? (
-                    <>
-                      <Check size={15} />
-                      <span>{category === "sort" ? "確定" : "発見"}</span>
-                    </>
-                  ) : category === "array" && (i === low || i === high) ? (
-                    <>
-                      <ArrowDown size={12} />
-                      <span>
-                        {i === low && i === high
-                          ? "L / R"
-                          : i === low
-                            ? "left"
-                            : "right"}
-                      </span>
-                    </>
-                  ) : null}
-                </div>
-                <button
-                  className="array-value"
-                  style={
-                    view === "bars"
-                      ? {
-                          height: `${48 + ((value - min) / (max - min)) * 100}px`,
-                        }
-                      : undefined
-                  }
-                  onClick={() => {
-                    if (category !== "sort") onPick(value);
-                  }}
-                  disabled={category === "sort"}
-                  title={
-                    category === "sort"
-                      ? `a[${i}] = ${value}`
-                      : `${value} を探索対象にする`
-                  }
-                  aria-label={`a[${i}] = ${value}：${found ? (category === "sort" ? "整列確定" : "発見") : active ? "比較中・現在位置" : !inRange ? "探索範囲外" : visited ? "確認済み" : "未確認"}${category !== "sort" ? `。${value} を探索対象にする` : ""}`}
-                >
-                  <span>{value}</span>
-                </button>
-                <span className="array-index">{i}</span>
-                <span className="cell-state">
-                  {found
-                    ? category === "sort"
-                      ? "確定"
-                      : "発見"
-                    : active
-                      ? category === "sort"
-                        ? "比較"
-                        : "現在"
-                      : !inRange
-                        ? "対象外"
-                        : visited
-                          ? "確認済"
-                          : ""}
-                </span>
-                <div
-                  className={`range-line ${category === "array" && inRange && !frame.result ? "visible" : ""}`}
-                />
-              </div>
-            );
-          })}
-        </div>
-      </div>
-      <div className="canvas-bottomline">
-        <span>
-          index <ArrowRight size={11} />
-        </span>
-        <span>
-          {category === "sort"
-            ? "昇順に並べ替えます"
-            : "値をクリックして探索対象に設定"}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function TreeDiagram({
-  values,
-  frame,
-  onPick,
-}: {
-  values: number[];
-  frame: Frame;
-  onPick: (n: number) => void;
-}) {
-  const nodes = buildTree(values),
-    depth = Math.max(...nodes.map((n) => n.depth)),
-    width = Math.max(600, nodes.length * 44),
-    height = Math.max(240, (depth + 1) * 66 + 22);
-  const x = (id: number) =>
-      32 + (nodes[id].x * (width - 64)) / Math.max(1, nodes.length - 1),
-    y = (id: number) => 32 + nodes[id].depth * 66;
-  return (
-    <div className="tree-canvas">
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        style={{
-          minWidth: Math.min(width, 800),
-          height: Math.min(520, height),
-        }}
-        role="img"
-        aria-label="入力順から構築した二分探索木"
-      >
-        {nodes.flatMap((n) =>
-          [n.left, n.right]
-            .filter((id): id is number => id !== null)
-            .map((id) => (
-              <line
-                key={`${n.id}-${id}`}
-                x1={x(n.id)}
-                y1={y(n.id)}
-                x2={x(id)}
-                y2={y(id)}
-                className={
-                  frame.visited.includes(n.id) &&
-                  (frame.visited.includes(id) || frame.active.includes(id))
-                    ? "tree-edge visited"
-                    : "tree-edge"
-                }
-              />
-            )),
-        )}
-        {nodes.map((n) => (
-          <g
-            key={n.id}
-            role="button"
-            tabIndex={0}
-            aria-label={`${n.value} を探索対象にする：${frame.found.includes(n.id) ? "発見" : frame.active.includes(n.id) ? "現在位置" : frame.visited.includes(n.id) ? "確認済み" : "未確認"}`}
-            onClick={() => onPick(n.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                e.stopPropagation();
-                onPick(n.value);
-              }
-            }}
-            className={`tree-node ${frame.found.includes(n.id) ? "found" : frame.active.includes(n.id) ? "active" : frame.visited.includes(n.id) ? "visited" : ""}`}
-          >
-            <circle cx={x(n.id)} cy={y(n.id)} r="21" />
-            {(frame.active.includes(n.id) || frame.found.includes(n.id)) && (
-              <text
-                className="node-state"
-                x={x(n.id)}
-                y={y(n.id) - 27}
-                textAnchor="middle"
-              >
-                {frame.found.includes(n.id) ? "✓" : "▼"}
-              </text>
-            )}
-            <text x={x(n.id)} y={y(n.id) + 5} textAnchor="middle">
-              {n.value}
-            </text>
-            {n.id === 0 && (
-              <text className="root-label" x={x(n.id) + 30} y={y(n.id) + 4}>
-                root
-              </text>
-            )}
-          </g>
-        ))}
-      </svg>
-    </div>
-  );
-}
-
-function Stat({
-  icon: Icon,
-  label,
-  value,
-  unit = "",
-  detail,
-  status = false,
-}: {
-  icon: typeof Search;
-  label: string;
-  value: number | string;
-  unit?: string;
-  detail: string;
-  status?: boolean;
-}) {
-  return (
-    <div className={`stat-card ${status ? "status-stat" : ""}`}>
-      <div className="stat-label">
-        <Icon size={15} />
-        {label}
-      </div>
-      <div className="stat-value">
-        {status && <i />}
-        {value}
-        <span>{unit}</span>
-      </div>
-      <p>{detail}</p>
-    </div>
-  );
-}
-
-function TraceChart({
-  frames,
-  category,
-  onSeek,
-}: {
-  frames: Frame[];
-  category: Category;
-  onSeek: (n: number) => void;
-}) {
-  const max = Math.max(1, ...frames.map((f) => f.comparisons)),
-    w = 880,
-    h = 180,
-    p = 32;
-  const x = (i: number) =>
-      p + (i * (w - 2 * p)) / Math.max(1, frames.length - 1),
-    y = (v: number) => h - p - (v * (h - 2 * p)) / max;
-  const stride = Math.max(1, Math.ceil(frames.length / 300));
-  const samples = frames.flatMap((f, i) =>
-    i % stride === 0 || i === frames.length - 1 ? [{ f, i }] : [],
-  );
-  return (
-    <div className="trace-chart">
-      <span className="chart-axis-label">
-        {category === "maze"
-          ? "累積訪問回数"
-          : category === "problem" || category === "game"
-            ? "訪問ノード数"
-            : "比較回数"}
-        {stride > 1 ? "（代表点を表示・全件はCSVへ）" : ""}
-      </span>
-      <svg
-        viewBox={`0 0 ${w} ${h}`}
-        role="img"
-        aria-label="ステップごとの累積比較・訪問回数"
-      >
-        {[0, 0.5, 1].map((v) => (
-          <g key={v}>
-            <line
-              x1={p}
-              x2={w - p}
-              y1={y(max * v)}
-              y2={y(max * v)}
-              className="chart-grid"
-            />
-            <text x={p - 8} y={y(max * v) + 4} textAnchor="end">
-              {Math.round(max * v)}
-            </text>
-          </g>
-        ))}
-        <path
-          d={`M ${p},${h - p} ${samples.map(({ f, i }) => `L ${x(i)},${y(f.comparisons)}`).join(" ")} L ${x(frames.length - 1)},${h - p} Z`}
-          fill="#eef5df"
-        />
-        <polyline
-          points={samples
-            .map(({ f, i }) => `${x(i)},${y(f.comparisons)}`)
-            .join(" ")}
-          fill="none"
-          stroke="#76964a"
-          strokeWidth="2.5"
-        />
-        {samples.map(({ f, i }) => (
-          <g
-            key={i}
-            role="button"
-            tabIndex={0}
-            aria-label={`ステップ ${i}：${f.comparisons} 回`}
-            onClick={() => onSeek(i)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") onSeek(i);
-            }}
-          >
-            <circle
-              cx={x(i)}
-              cy={y(f.comparisons)}
-              r={frames.length > 70 ? 2 : 4}
-              fill={i === frames.length - 1 ? "#e49c48" : "#76964a"}
-            />
-            {(frames.length < 18 || i === frames.length - 1) && (
-              <text x={x(i)} y={h - 8} textAnchor="middle">
-                {i}
-              </text>
-            )}
-          </g>
-        ))}
-      </svg>
-      <span className="chart-bottom-label">ステップ →</span>
-    </div>
-  );
-}
-
-function Guide() {
-  return (
-    <>
-      <span className="modal-eyebrow">
-        <BookOpen size={16} />
-        QUICK START
-      </span>
-      <h2 id="modal-title">動かして、理解しよう。</h2>
-      <p className="modal-description">
-        はじめての探索ラボ。3つのステップで始められます。
-      </p>
-      <div className="guide-steps">
-        <div>
-          <span>01</span>
-          <div>
-            <h3>アルゴリズムを選ぶ</h3>
-            <p>
-              配列・迷路・木・整列から実験室を選択。同じデータのまま、アルゴリズムを切り替えられます。
-            </p>
-          </div>
-        </div>
-        <div>
-          <span>02</span>
-          <div>
-            <h3>データと目標を設定する</h3>
-            <p>
-              整数をカンマで区切って入力し「適用」を押します。探索対象は直接入力するほか、配列や木の値をクリックして設定できます。迷路はマスをなぞって壁を描けます。
-            </p>
-          </div>
-        </div>
-        <div>
-          <span>03</span>
-          <div>
-            <h3>再生し、トレースで確かめる</h3>
-            <p>
-              1ステップずつ進めたり、前の状態へ戻ったりできます。「仕組み」で前提と計算量を読み、CSV
-              で全ステップを保存しましょう。
-            </p>
-          </div>
-        </div>
-      </div>
-      <div className="keyboard-guide">
-        <strong>キーボードでも操作できます</strong>
-        <span>
-          <kbd>Space</kbd> 再生 / 停止
-        </span>
-        <span>
-          <kbd>←</kbd>
-          <kbd>→</kbd> ステップ移動
-        </span>
-        <span>
-          <kbd>R</kbd> リセット
-        </span>
-        <span>
-          <kbd>Shift</kbd>＋<kbd>←</kbd>
-          <kbd>→</kbd> 10ステップ移動
-        </span>
-        <span>
-          <kbd>Home</kbd> 最初へ / <kbd>End</kbd> 最後へ
-        </span>
-        <span>
-          <kbd>[</kbd> 減速 / <kbd>]</kbd> 加速
-        </span>
-        <span>
-          <kbd>Ctrl / ⌘</kbd>＋<kbd>Z</kbd> 元に戻す（Shiftでやり直し）
-        </span>
-        <span>
-          <kbd>?</kbd> このガイドを開く
-        </span>
-        <small>
-          入力中は通常の編集操作が優先されます。迷路内の矢印キーはマスの移動、Enter
-          / Space
-          は編集に使います。表示設定で再生のショートカットを無効にできます。
-        </small>
-      </div>
-      <p className="guide-note">
-        1ステップは比較・訪問などの操作単位です。擬似コードは対応行を示し、すべての行を逐次実行するデバッガーではありません。変数・状態の印は前のステップからの変化を表します。
-      </p>
-      <p className="guide-note">
-        インデックスと迷路の座標は 0
-        始まり。配列の最大要素数は32、木は31ノードです。整列が前提の探索では、入力を自動的に昇順にします。表示設定・実験・学習記録はブラウザーに保存します。
-      </p>
-      <p className="guide-note">
-        「表示設定」でテーマ・文字サイズ・レイアウトを変更できます。ツールバーから実験の保存・読み込み・共有、30回分の元に戻す操作ができます。「学習の冒険」では、毎日の体験でXPや宝箱、実績を獲得できます。
-      </p>
-    </>
-  );
-}
-
-function Comparison({
-  category,
-  data,
-  grid,
-  start,
-  goal,
-  target,
-  mazeOptions,
-}: {
-  category: Category;
-  data: Experiment["data"];
-  grid: number[];
-  start: number;
-  goal: number;
-  target: number;
-  mazeOptions: MazeOptions;
-}) {
-  const results = useMemo(
-    () =>
-      algorithms
-        .filter((a) => a.category === category)
-        .map((a) => {
-          const sorted = [...data.array].sort((x, y) => x - y);
-          const frames =
-            category === "maze"
-              ? mazeFrames(a.id, grid, start, goal, ROWS, COLS, mazeOptions)
-              : category === "tree"
-                ? treeFrames(a.id, data.tree, target)
-                : category === "sort"
-                  ? sortFrames(a.id, data.sort)
-                  : category === "problem" || category === "game"
-                    ? advancedFrames(a.id as AdvancedId, data[category])
-                    : searchFrames(
-                        a.id,
-                        a.id === "linear" ? data.array : sorted,
-                        target,
-                      );
-          return {
-            algorithm: a,
-            last: frames[frames.length - 1],
-            steps: frames.length - 1,
-          };
-        }),
-    [category, data, grid, start, goal, target, mazeOptions],
-  );
-  const max = Math.max(1, ...results.map((r) => r.last.comparisons));
-  return (
-    <>
-      <span className="modal-eyebrow">
-        <Layers3 size={16} />
-        COMPARE & DISCOVER
-      </span>
-      <h2 id="modal-title">同じデータで、比べてみる。</h2>
-      <p className="modal-description">
-        現在の
-        {category === "maze"
-          ? "迷路"
-          : category === "tree"
-            ? "木"
-            : category === "game"
-              ? "終端評価"
-              : category === "problem"
-                ? "入力値"
-                : "配列"}
-        を使った、実際の実行結果です。
-        {category === "array" || category === "tree"
-          ? ` 探索する値：${target}`
-          : ""}
-      </p>
-      <div className="comparison-list">
-        {results.map(({ algorithm: a, last, steps }) => (
-          <div className="comparison-item" key={a.id}>
-            <div>
-              <strong>{a.name}</strong>
-              <span>{a.time}</span>
-              <b>
-                {last.comparisons}{" "}
-                <small>
-                  {category === "maze"
-                    ? "マス訪問"
-                    : category === "problem" || category === "game"
-                      ? "ノード訪問"
-                      : "回比較"}
-                </small>
-              </b>
-            </div>
-            <div className="comparison-bar">
-              <span style={{ width: `${(last.comparisons / max) * 100}%` }} />
-            </div>
-            <p>
-              {last.result === "limited"
-                ? "上限到達（経路の有無は未確定）"
-                : last.result === "missing"
-                  ? category === "problem"
-                    ? "根の問題を解決できませんでした"
-                    : "目標は見つかりませんでした"
-                  : category === "game"
-                    ? a.id === "game-tree"
-                      ? "全局面を走査（最善手の選択なし）"
-                      : `評価値 ${last.value} / 最善手 ${last.path?.[1] ?? "終端"} / 枝刈り ${last.pruned?.length ?? 0} ノード`
-                    : category === "problem"
-                      ? a.id === "and-or"
-                        ? "解グラフを発見"
-                        : `総和 ${last.value}`
-                      : category === "maze"
-                        ? `${(last.path?.length ?? 1) - 1} 歩 / コスト ${last.cost}`
-                        : category === "sort"
-                          ? `交換 ${last.swaps} 回`
-                          : "目標を発見"}
-              <span>{steps} ステップ</span>
-            </p>
-          </div>
-        ))}
-      </div>
-      <div className="comparison-note">
-        <Sparkles size={16} />
-        <p>
-          {category === "array"
-            ? "線形探索以外には、同じ値を昇順に並べた配列を使います。整列のコストは含みません。比較回数は要素と目標の比較を1回として数えます。"
-            : category === "maze"
-              ? "BFS / DFS / 反復深化は重みを無視します。最良優先 / A / A* / ダイクストラは重みをコストに加算します。最良優先と α>1 の A は最小コストを保証しません。反復深化は再訪問を累積し、設定した深さ上限を使用します。"
-              : category === "tree"
-                ? "同じ木と目標値でも、ノードを訪問する順番によって比較回数が変わります。"
-                : category === "game"
-                  ? "同じゲーム木を左から探索します。ミニマックス法とアルファベータ法の根の評価と最善手は一致します。訪問数には内部ノードも含み、枝刈りした局面は含みません。"
-                  : category === "problem"
-                    ? "同じ数列を、分解では加算、AND/OR では成否（0 は失敗）として使います。異なる問題なので、訪問数は処理の違いを観察するための指標です。"
-                    : "交換回数には、同じ位置どうしの交換は含みません。入力の並びを変えると、結果も変わります。"}
-        </p>
-      </div>
-    </>
   );
 }
 

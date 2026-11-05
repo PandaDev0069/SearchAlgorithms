@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import type { Preferences } from "./preferences";
 import {
   defaultPreferences,
   PREFERENCES_KEY,
@@ -6,8 +7,8 @@ import {
   sanitizePreferences,
   writeStored,
 } from "./preferences";
-import type { Preferences } from "./preferences";
 
+/** Keep saved preferences, the system theme, and document appearance in sync. */
 export function usePreferences() {
   const [preferences, setPreferences] = useState(() =>
     readStored(PREFERENCES_KEY, { ...defaultPreferences }, sanitizePreferences),
@@ -18,7 +19,9 @@ export function usePreferences() {
       window.matchMedia("(prefers-color-scheme: dark)").matches,
   );
   useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
+    if (typeof window.matchMedia !== "function") {
+      return;
+    }
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const change = (event: MediaQueryListEvent) => setSystemDark(event.matches);
     media.addEventListener("change", change);
@@ -26,7 +29,9 @@ export function usePreferences() {
   }, []);
   useEffect(() => {
     const sync = (event: StorageEvent) => {
-      if (event.key !== PREFERENCES_KEY || !event.newValue) return;
+      if (event.key !== PREFERENCES_KEY || !event.newValue) {
+        return;
+      }
       try {
         const next = sanitizePreferences(JSON.parse(event.newValue));
         setPreferences((previous) =>
@@ -40,11 +45,7 @@ export function usePreferences() {
     return () => window.removeEventListener("storage", sync);
   }, []);
   const resolvedTheme =
-    preferences.theme === "system"
-      ? systemDark
-        ? "dark"
-        : "light"
-      : preferences.theme;
+    preferences.theme === "system" ? (systemDark ? "dark" : "light") : preferences.theme;
   useEffect(() => {
     const root = document.documentElement;
     root.dataset.theme = resolvedTheme;
@@ -58,18 +59,13 @@ export function usePreferences() {
       .querySelector('meta[name="theme-color"]')
       ?.setAttribute(
         "content",
-        resolvedTheme === "dark"
-          ? "#151b19"
-          : resolvedTheme === "paper"
-            ? "#f4eddf"
-            : "#f5f7f4",
+        resolvedTheme === "dark" ? "#151b19" : resolvedTheme === "paper" ? "#f4eddf" : "#f5f7f4",
       );
     writeStored(PREFERENCES_KEY, preferences);
   }, [preferences, resolvedTheme]);
-  function updatePreferences(patch: Partial<Preferences>) {
-    setPreferences((previous) =>
-      sanitizePreferences({ ...previous, ...patch }),
-    );
-  }
+  const updatePreferences = useCallback((patch: Partial<Preferences>) => {
+    setPreferences((previous) => sanitizePreferences({ ...previous, ...patch }));
+  }, []);
+
   return { preferences, updatePreferences, resolvedTheme };
 }

@@ -1,7 +1,6 @@
 import {
   BookOpen,
   Check,
-  ChevronRight,
   Compass,
   Crown,
   Flame,
@@ -12,6 +11,7 @@ import {
   Sun,
   Trophy,
 } from "lucide-react";
+import { algorithms } from "./algorithms";
 import type { LearningState } from "./learning";
 import {
   achievements,
@@ -22,7 +22,6 @@ import {
   STUDY_XP,
   unlockedAchievements,
 } from "./learning";
-import { algorithms } from "./algorithms";
 
 const icons = {
   sparkles: Sparkles,
@@ -34,60 +33,6 @@ const icons = {
   gift: Gift,
   gem: Gem,
 };
-export function LearningCard({
-  state,
-  today,
-  onOpen,
-}: {
-  state: LearningState;
-  today: string;
-  onOpen: () => void;
-}) {
-  const stats = learningStats(state, today);
-  return (
-    <button
-      className="learning-card quest-mini"
-      onClick={onOpen}
-      aria-label="学習の冒険を開く"
-    >
-      <div className="quest-mini-top">
-        <span className="quest-level">
-          <Gem size={16} />
-          Lv. {stats.level}
-        </span>
-        <span>
-          <Flame size={13} />
-          {stats.streak}日
-        </span>
-      </div>
-      <strong>今日も、小さな冒険へ。</strong>
-      <div
-        className="learning-progress"
-        role="progressbar"
-        aria-label="次のレベルまでの経験値"
-        aria-valuenow={stats.levelXp}
-        aria-valuemin={0}
-        aria-valuemax={100}
-      >
-        <span style={{ width: `${stats.levelXp}%` }} />
-      </div>
-      <small>
-        {stats.levelXp} / 100 XP <span>合計 {stats.xp} XP</span>
-      </small>
-      <div className="quest-mini-bottom">
-        <Gift size={16} />
-        <span>
-          {stats.chestReady
-            ? "宝箱を開けよう！"
-            : stats.chestOpened
-              ? "本日の宝物を獲得済み"
-              : `今日の学習 ${Math.min(stats.today, DAILY_GOAL)} / ${DAILY_GOAL}`}
-        </span>
-        <ChevronRight size={14} />
-      </div>
-    </button>
-  );
-}
 
 export function LearningAdventure({
   state,
@@ -98,13 +43,11 @@ export function LearningAdventure({
   today: string;
   onClaim: () => void;
 }) {
-  const stats = learningStats(state, today),
-    unlocked = unlockedAchievements(state, today),
-    todayIds = state.days[today]?.algorithms ?? [];
+  const stats = learningStats(state, today);
+  const unlocked = unlockedAchievements(state, today);
+  const todayIds = state.days[today]?.algorithms ?? [];
   const recentDays = Array.from({ length: 7 }, (_, i) =>
-    new Date(Date.parse(`${today}T00:00:00Z`) - (6 - i) * 86400000)
-      .toISOString()
-      .slice(0, 10),
+    new Date(Date.parse(`${today}T00:00:00Z`) - (6 - i) * 86400000).toISOString().slice(0, 10),
   );
   return (
     <>
@@ -176,9 +119,7 @@ export function LearningAdventure({
               {algorithms.find((a) => a.id === id)?.name}
             </span>
           ))}
-          {!todayIds.length && (
-            <span>最初のアルゴリズムを体験してみよう。</span>
-          )}
+          {!todayIds.length && <span>最初のアルゴリズムを体験してみよう。</span>}
         </div>
       </section>
       <section
@@ -197,11 +138,7 @@ export function LearningAdventure({
                 ? "クエスト達成！ 宝箱を開けて報酬を受け取ろう。"
                 : `今日のクエストを達成すると、宝物と ${CHEST_XP} XP。`}
           </p>
-          <button
-            className="play-button"
-            disabled={!stats.chestReady}
-            onClick={onClaim}
-          >
+          <button className="play-button" disabled={!stats.chestReady} onClick={onClaim}>
             {stats.chestOpened ? (
               <Check size={15} />
             ) : stats.chestReady ? (
@@ -250,13 +187,10 @@ export function LearningAdventure({
         </div>
         <div className="achievement-grid">
           {achievements.map((achievement) => {
-            const earned = unlocked.includes(achievement.id),
-              Icon = icons[achievement.icon];
+            const earned = unlocked.includes(achievement.id);
+            const Icon = icons[achievement.icon];
             return (
-              <div
-                key={achievement.id}
-                className={`achievement ${earned ? "earned" : ""}`}
-              >
+              <div key={achievement.id} className={`achievement ${earned ? "earned" : ""}`}>
                 <span className="achievement-icon">
                   {earned ? <Icon size={22} /> : <LockKeyhole size={19} />}
                 </span>

@@ -1,23 +1,25 @@
-import { algorithms } from "./algorithms.ts";
 import type { AlgorithmId } from "./algorithms.ts";
+import { algorithms } from "./algorithms.ts";
 
 export const LEARNING_KEY = "tansaku-learning-v1";
-export const DAILY_GOAL = 3,
-  STUDY_XP = 20,
-  CHEST_XP = 50;
+export const DAILY_GOAL = 3;
+export const STUDY_XP = 20;
+export const CHEST_XP = 50;
+
 export type StudyDay = { algorithms: AlgorithmId[]; chestOpened: boolean };
+
 export type LearningState = {
   version: 1;
   days: Record<string, StudyDay>;
   legacyAlgorithms: AlgorithmId[];
 };
+
 export const emptyLearning: LearningState = {
   version: 1,
   days: {},
   legacyAlgorithms: [],
 };
-const validId = (id: unknown): id is AlgorithmId =>
-  algorithms.some((a) => a.id === id);
+const validId = (id: unknown): id is AlgorithmId => algorithms.some((a) => a.id === id);
 const uniqueIds = (value: unknown): AlgorithmId[] =>
   Array.isArray(value) ? [...new Set(value.filter(validId))] : [];
 const validDay = (day: string) =>
@@ -25,6 +27,7 @@ const validDay = (day: string) =>
   !Number.isNaN(Date.parse(`${day}T00:00:00Z`)) &&
   new Date(`${day}T00:00:00Z`).toISOString().slice(0, 10) === day;
 
+/** Use the Japanese calendar day so rewards reset together across client time zones. */
 export function getStudyDay(date = new Date()): string {
   return new Intl.DateTimeFormat("sv-SE", {
     timeZone: "Asia/Tokyo",
@@ -33,43 +36,44 @@ export function getStudyDay(date = new Date()): string {
     day: "2-digit",
   }).format(date);
 }
+
 export function previousDay(day: string): string {
-  return new Date(Date.parse(`${day}T00:00:00Z`) - 86400000)
-    .toISOString()
-    .slice(0, 10);
+  return new Date(Date.parse(`${day}T00:00:00Z`) - 86400000).toISOString().slice(0, 10);
 }
+
 export function sanitizeLearning(value: unknown): LearningState {
-  if (!value || typeof value !== "object")
+  if (!value || typeof value !== "object") {
     return { ...emptyLearning, days: {} };
-  const input = value as Partial<LearningState>,
-    days: Record<string, StudyDay> = {};
-  if (input.days && typeof input.days === "object")
+  }
+  const input = value as Partial<LearningState>;
+  const days: Record<string, StudyDay> = {};
+  if (input.days && typeof input.days === "object") {
     for (const [date, entry] of Object.entries(input.days)) {
-      if (!validDay(date) || !entry || typeof entry !== "object") continue;
+      if (!validDay(date) || !entry || typeof entry !== "object") {
+        continue;
+      }
       const ids = uniqueIds(entry.algorithms);
-      if (!ids.length) continue;
+      if (!ids.length) {
+        continue;
+      }
       days[date] = {
         algorithms: ids,
         chestOpened: entry.chestOpened === true && ids.length >= DAILY_GOAL,
       };
     }
+  }
   return {
     version: 1,
     days,
     legacyAlgorithms: uniqueIds(input.legacyAlgorithms),
   };
 }
-export function recordStudy(
-  state: LearningState,
-  id: AlgorithmId,
-  day: string,
-): LearningState {
-  if (
-    !validDay(day) ||
-    !validId(id) ||
-    state.days[day]?.algorithms.includes(id)
-  )
+
+/** Credit one algorithm per day, keeping the existing state for repeat completions. */
+export function recordStudy(state: LearningState, id: AlgorithmId, day: string): LearningState {
+  if (!validDay(day) || !validId(id) || state.days[day]?.algorithms.includes(id)) {
     return state;
+  }
   return {
     ...state,
     days: {
@@ -81,14 +85,13 @@ export function recordStudy(
     },
   };
 }
-export function mergeLearning(
-  first: LearningState,
-  second: LearningState,
-): LearningState {
+
+/** Merge tab saves by union so completed study and claimed rewards survive. */
+export function mergeLearning(first: LearningState, second: LearningState): LearningState {
   const days: Record<string, StudyDay> = {};
   for (const day of [
     ...new Set([...Object.keys(first.days), ...Object.keys(second.days)]),
-  ].sort())
+  ].sort()) {
     days[day] = {
       algorithms: [
         ...new Set([
@@ -96,26 +99,22 @@ export function mergeLearning(
           ...(second.days[day]?.algorithms ?? []),
         ]),
       ].sort(),
-      chestOpened: !!(
-        first.days[day]?.chestOpened || second.days[day]?.chestOpened
-      ),
+      chestOpened: !!(first.days[day]?.chestOpened || second.days[day]?.chestOpened),
     };
+  }
   const merged: LearningState = {
     version: 1,
     days,
-    legacyAlgorithms: [
-      ...new Set([...first.legacyAlgorithms, ...second.legacyAlgorithms]),
-    ].sort(),
+    legacyAlgorithms: [...new Set([...first.legacyAlgorithms, ...second.legacyAlgorithms])].sort(),
   };
   return JSON.stringify(first) === JSON.stringify(merged) ? first : merged;
 }
-export function openDailyChest(
-  state: LearningState,
-  day: string,
-): LearningState {
+
+export function openDailyChest(state: LearningState, day: string): LearningState {
   const entry = state.days[day];
-  if (!entry || entry.algorithms.length < DAILY_GOAL || entry.chestOpened)
+  if (!entry || entry.algorithms.length < DAILY_GOAL || entry.chestOpened) {
     return state;
+  }
   return {
     ...state,
     days: { ...state.days, [day]: { ...entry, chestOpened: true } },
@@ -127,26 +126,20 @@ export function learningStats(state: LearningState, today: string) {
     .filter((day) => state.days[day].algorithms.length > 0)
     .sort();
   const distinct = [
-    ...new Set([
-      ...state.legacyAlgorithms,
-      ...days.flatMap((day) => state.days[day].algorithms),
-    ]),
+    ...new Set([...state.legacyAlgorithms, ...days.flatMap((day) => state.days[day].algorithms)]),
   ];
   const chests = days.filter((day) => state.days[day].chestOpened).length;
-  const sessions = days.reduce(
-    (sum, day) => sum + state.days[day].algorithms.length,
-    0,
-  );
+  const sessions = days.reduce((sum, day) => sum + state.days[day].algorithms.length, 0);
   const xp = sessions * STUDY_XP + chests * CHEST_XP;
-  let streak = 0,
-    cursor = state.days[today] ? today : previousDay(today);
+  let streak = 0;
+  let cursor = state.days[today] ? today : previousDay(today);
   while (state.days[cursor]?.algorithms.length) {
     streak++;
     cursor = previousDay(cursor);
   }
-  let longest = 0,
-    run = 0,
-    last = "";
+  let longest = 0;
+  let run = 0;
+  let last = "";
   for (const day of days) {
     run = last === previousDay(day) ? run + 1 : 1;
     longest = Math.max(longest, run);
@@ -164,11 +157,11 @@ export function learningStats(state: LearningState, today: string) {
     days: days.length,
     today: state.days[today]?.algorithms.length ?? 0,
     chestReady:
-      (state.days[today]?.algorithms.length ?? 0) >= DAILY_GOAL &&
-      !state.days[today]?.chestOpened,
+      (state.days[today]?.algorithms.length ?? 0) >= DAILY_GOAL && !state.days[today]?.chestOpened,
     chestOpened: state.days[today]?.chestOpened ?? false,
   };
 }
+
 export const achievements = [
   {
     id: "first",
@@ -225,19 +218,15 @@ export const achievements = [
     icon: "gem",
   },
 ] as const;
-export function unlockedAchievements(
-  state: LearningState,
-  today: string,
-): string[] {
+
+export function unlockedAchievements(state: LearningState, today: string): string[] {
   const stats = learningStats(state, today);
   const checks: Record<string, boolean> = {
     first: stats.distinct.length >= 1,
     five: stats.distinct.length >= 5,
     ten: stats.distinct.length >= 10,
     all: stats.distinct.length >= algorithms.length,
-    daily: Object.values(state.days).some(
-      (d) => d.algorithms.length >= DAILY_GOAL,
-    ),
+    daily: Object.values(state.days).some((d) => d.algorithms.length >= DAILY_GOAL),
     streak3: stats.longest >= 3,
     streak7: stats.longest >= 7,
     chest: stats.chests >= 1,
@@ -245,15 +234,8 @@ export function unlockedAchievements(
   };
   return achievements.filter((a) => checks[a.id]).map((a) => a.id);
 }
+
 export function dailyTreasure(day: string): string {
-  const treasures = [
-    "ひらめきのクリスタル",
-    "探究のコンパス",
-    "知恵のしおり",
-    "継続のスター",
-  ];
-  return treasures[
-    [...day].reduce((sum, char) => sum + char.charCodeAt(0), 0) %
-      treasures.length
-  ];
+  const treasures = ["ひらめきのクリスタル", "探究のコンパス", "知恵のしおり", "継続のスター"];
+  return treasures[[...day].reduce((sum, char) => sum + char.charCodeAt(0), 0) % treasures.length];
 }

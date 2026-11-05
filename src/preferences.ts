@@ -49,7 +49,9 @@ export const defaultPreferences: Preferences = {
 
 export function sanitizePreferences(value: unknown): Preferences {
   const result = { ...defaultPreferences };
-  if (!value || typeof value !== "object") return result;
+  if (!value || typeof value !== "object") {
+    return result;
+  }
   const input = value as Record<string, unknown>;
   const choices: Record<string, readonly string[]> = {
     theme: ["system", "light", "dark", "paper"],
@@ -59,38 +61,29 @@ export function sanitizePreferences(value: unknown): Preferences {
     codePosition: ["right", "left"],
     density: ["comfortable", "compact"],
   };
-  for (const [key, options] of Object.entries(choices))
-    if (
-      typeof input[key] === "string" &&
-      options.includes(input[key] as string)
-    )
+  for (const [key, options] of Object.entries(choices)) {
+    if (typeof input[key] === "string" && options.includes(input[key] as string)) {
       Object.assign(result, { [key]: input[key] });
-  for (const key of Object.keys(defaultPreferences) as (keyof Preferences)[])
-    if (
-      typeof defaultPreferences[key] === "boolean" &&
-      typeof input[key] === "boolean"
-    )
+    }
+  }
+  for (const key of Object.keys(defaultPreferences) as (keyof Preferences)[]) {
+    if (typeof defaultPreferences[key] === "boolean" && typeof input[key] === "boolean") {
       Object.assign(result, { [key]: input[key] });
-  if (typeof input.fontSize === "number" && Number.isFinite(input.fontSize))
-    result.fontSize = Math.max(
-      80,
-      Math.min(160, Math.round(input.fontSize / 5) * 5),
-    );
-  if (typeof input.splitRatio === "number" && Number.isFinite(input.splitRatio))
-    result.splitRatio = Math.max(
-      45,
-      Math.min(80, Math.round(input.splitRatio)),
-    );
-  if ([0.25, 0.5, 1, 2, 4, 8, 16].includes(Number(input.speed)))
+    }
+  }
+  if (typeof input.fontSize === "number" && Number.isFinite(input.fontSize)) {
+    result.fontSize = Math.max(80, Math.min(160, Math.round(input.fontSize / 5) * 5));
+  }
+  if (typeof input.splitRatio === "number" && Number.isFinite(input.splitRatio)) {
+    result.splitRatio = Math.max(45, Math.min(80, Math.round(input.splitRatio)));
+  }
+  if ([0.25, 0.5, 1, 2, 4, 8, 16].includes(Number(input.speed))) {
     result.speed = Number(input.speed);
+  }
   return result;
 }
 
-export function readStored<T>(
-  key: string,
-  fallback: T,
-  sanitize: (value: unknown) => T,
-): T {
+export function readStored<T>(key: string, fallback: T, sanitize: (value: unknown) => T): T {
   try {
     const raw = localStorage.getItem(key);
     return raw === null ? fallback : sanitize(JSON.parse(raw));
@@ -102,7 +95,9 @@ export function readStored<T>(
 export function writeStored(key: string, value: unknown): boolean {
   try {
     const text = JSON.stringify(value);
-    if (localStorage.getItem(key) !== text) localStorage.setItem(key, text);
+    if (localStorage.getItem(key) !== text) {
+      localStorage.setItem(key, text);
+    }
     return true;
   } catch {
     return false;

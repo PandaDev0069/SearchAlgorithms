@@ -1,8 +1,8 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import {
-  defaultExperiment,
   decodeExperiment,
+  defaultExperiment,
   encodeExperiment,
   parseExperiment,
   validateExperiment,
@@ -33,10 +33,9 @@ test("invalid imports fail without partially applying unsafe or oversized state"
     { maxDepth: 1000 },
     { heuristicWeight: Infinity },
     { data: { array: [1.5], tree: [1], sort: [2] } },
-  ])
-    assert.throws(() =>
-      validateExperiment({ ...defaultExperiment(), ...change }),
-    );
+  ]) {
+    assert.throws(() => validateExperiment({ ...defaultExperiment(), ...change }));
+  }
   assert.throws(() => parseExperiment("not json"));
   assert.throws(() => parseExperiment(" ".repeat(65537)));
   assert.throws(() => decodeExperiment("invalid!"));
@@ -68,26 +67,43 @@ test("new search sections preserve leaf order, duplicates and choices in files a
   for (const [category, ids] of [
     ["problem", ["decomposition", "and-or"]],
     ["game", ["game-tree", "minimax", "alpha-beta"]],
-  ] as const) for (const algorithmId of ids) {
-    const experiment = defaultExperiment();
-    experiment.category = category;
-    experiment.algorithmId = algorithmId;
-    experiment.selections[category] = algorithmId;
-    experiment.data[category] = [-3, 5, 5, 0, -1];
-    assert.deepEqual(parseExperiment(JSON.stringify(experiment)), experiment);
-    assert.deepEqual(decodeExperiment(encodeExperiment(experiment)), experiment);
-    assert.throws(() => validateExperiment({ ...experiment, data: { ...experiment.data, [category]: [] } }));
-    assert.throws(() => validateExperiment({ ...experiment, data: { ...experiment.data, [category]: null } }));
-    assert.throws(() => validateExperiment({ ...experiment, data: { ...experiment.data, [category]: [1.5] } }));
-    assert.throws(() => validateExperiment({ ...experiment, data: { ...experiment.data, [category]: Array(33).fill(1) } }));
+  ] as const) {
+    for (const algorithmId of ids) {
+      const experiment = defaultExperiment();
+      experiment.category = category;
+      experiment.algorithmId = algorithmId;
+      experiment.selections[category] = algorithmId;
+      experiment.data[category] = [-3, 5, 5, 0, -1];
+      assert.deepEqual(parseExperiment(JSON.stringify(experiment)), experiment);
+      assert.deepEqual(decodeExperiment(encodeExperiment(experiment)), experiment);
+      assert.throws(() =>
+        validateExperiment({ ...experiment, data: { ...experiment.data, [category]: [] } }),
+      );
+      assert.throws(() =>
+        validateExperiment({ ...experiment, data: { ...experiment.data, [category]: null } }),
+      );
+      assert.throws(() =>
+        validateExperiment({ ...experiment, data: { ...experiment.data, [category]: [1.5] } }),
+      );
+      assert.throws(() =>
+        validateExperiment({
+          ...experiment,
+          data: { ...experiment.data, [category]: Array(33).fill(1) },
+        }),
+      );
+    }
   }
 });
 
 test("older version 1 saves gain default problem and game data without losing existing work", () => {
   const previous = defaultExperiment();
   const { problem: _problem, game: _game, ...data } = previous.data;
-  const restored = validateExperiment({ ...previous, data, selections: { array: 'binary', maze: 'bfs', tree: 'bst', sort: 'bubble' } });
+  const restored = validateExperiment({
+    ...previous,
+    data,
+    selections: { array: "binary", maze: "bfs", tree: "bst", sort: "bubble" },
+  });
   assert.deepEqual(restored, previous);
   assert.notEqual(restored.data.game, previous.data.game);
-  assert.throws(() => validateExperiment({ ...previous, category: 'game', algorithmId: 'and-or' }));
+  assert.throws(() => validateExperiment({ ...previous, category: "game", algorithmId: "and-or" }));
 });

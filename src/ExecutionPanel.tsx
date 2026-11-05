@@ -116,9 +116,7 @@ export function PlaybackControls({
               </option>
             ))}
           </select>
-          <span className="playback-state">
-            {playing ? "再生中" : ended ? "完了" : "停止中"}
-          </span>
+          <span className="playback-state">{playing ? "再生中" : ended ? "完了" : "停止中"}</span>
         </div>
       </div>
       <div className="timeline">
@@ -155,39 +153,41 @@ export function watchEntries(
   const entries: [string, string][] = [];
   if (category === "array") {
     entries.push(["target", String(target)]);
-    if (frame.left !== undefined) entries.push(["left", String(frame.left)]);
-    if (frame.right !== undefined) entries.push(["right", String(frame.right)]);
+    if (frame.left !== undefined) {
+      entries.push(["left", String(frame.left)]);
+    }
+    if (frame.right !== undefined) {
+      entries.push(["right", String(frame.right)]);
+    }
     entries.push([
-      algorithmId === "binary"
-        ? "mid"
-        : algorithmId === "interpolation"
-          ? "pos"
-          : "確認 index",
+      algorithmId === "binary" ? "mid" : algorithmId === "interpolation" ? "pos" : "確認 index",
       list(frame.active),
     ]);
-    entries.push([
-      "確認値",
-      list(frame.active.map((index) => frame.array[index])),
-    ]);
+    entries.push(["確認値", list(frame.active.map((index) => frame.array[index]))]);
   } else if (category === "sort") {
-    entries.push(
-      ["比較 index", list(frame.active)],
-      ["交換回数", String(frame.swaps)],
-    );
-    if (frame.left !== undefined) entries.push(["left", String(frame.left)]);
-    if (frame.right !== undefined) entries.push(["right", String(frame.right)]);
+    entries.push(["比較 index", list(frame.active)], ["交換回数", String(frame.swaps)]);
+    if (frame.left !== undefined) {
+      entries.push(["left", String(frame.left)]);
+    }
+    if (frame.right !== undefined) {
+      entries.push(["right", String(frame.right)]);
+    }
   } else {
     entries.push(["現在ノード", list(frame.active)]);
-    if (category === "tree") entries.push(["target", String(target)]);
-    if (frame.frontier)
+    if (category === "tree") {
+      entries.push(["target", String(target)]);
+    }
+    if (frame.frontier) {
       entries.push(["探索待ち", String(frame.frontier.length)]);
-    if (frame.depth !== undefined) entries.push(["深さ", String(frame.depth)]);
-    for (const key of ["g", "h", "f", "alpha", "beta", "value"] as const)
-      if (frame[key] !== undefined)
-        entries.push([
-          key === "alpha" ? "α" : key === "beta" ? "β" : key,
-          String(frame[key]),
-        ]);
+    }
+    if (frame.depth !== undefined) {
+      entries.push(["深さ", String(frame.depth)]);
+    }
+    for (const key of ["g", "h", "f", "alpha", "beta", "value"] as const) {
+      if (frame[key] !== undefined) {
+        entries.push([key === "alpha" ? "α" : key === "beta" ? "β" : key, String(frame[key])]);
+      }
+    }
   }
   entries.push([
     category === "array" || category === "sort" ? "比較回数" : "訪問回数",
@@ -209,52 +209,37 @@ export function WatchStates({
   algorithmId: AlgorithmId;
   target: number;
 }) {
-  const before = new Map(
-    previous ? watchEntries(previous, category, algorithmId, target) : [],
-  );
+  const before = new Map(previous ? watchEntries(previous, category, algorithmId, target) : []);
   return (
     <section className="watch-panel" aria-label="現在の変数と状態">
       <span className="watch-title">変数・状態</span>
       <dl>
-        {watchEntries(frame, category, algorithmId, target).map(
-          ([name, value]) => {
-            const changed = before.has(name) && before.get(name) !== value;
-            return (
-              <div
-                key={name}
-                className={changed ? "watch-changed" : ""}
-                title={
-                  changed ? `前のステップ: ${before.get(name)}` : undefined
-                }
-              >
-                <dt>{name}</dt>
-                <dd>
-                  {value}
-                  {changed && (
-                    <span
-                      className="watch-change"
-                      aria-label="前のステップから変化"
-                    >
-                      •
-                    </span>
-                  )}
-                </dd>
-              </div>
-            );
-          },
-        )}
+        {watchEntries(frame, category, algorithmId, target).map(([name, value]) => {
+          const changed = before.has(name) && before.get(name) !== value;
+          return (
+            <div
+              key={name}
+              className={changed ? "watch-changed" : ""}
+              title={changed ? `前のステップ: ${before.get(name)}` : undefined}
+            >
+              <dt>{name}</dt>
+              <dd>
+                {value}
+                {changed && (
+                  <span className="watch-change" aria-label="前のステップから変化">
+                    •
+                  </span>
+                )}
+              </dd>
+            </div>
+          );
+        })}
       </dl>
     </section>
   );
 }
 
-export function CurrentInstruction({
-  lines,
-  line,
-}: {
-  lines: string[];
-  line: number;
-}) {
+export function CurrentInstruction({ lines, line }: { lines: string[]; line: number }) {
   return (
     <div className="current-instruction" aria-label="可視化に対応するコード行">
       <span>
@@ -262,11 +247,7 @@ export function CurrentInstruction({
         対応行 <b>L{line + 1}</b>
       </span>
       <code>{lines[line]}</code>
-      <Check
-        size={14}
-        className="instruction-sync"
-        aria-label="同じステップに同期"
-      />
+      <Check size={14} className="instruction-sync" aria-label="同じステップに同期" />
     </div>
   );
 }

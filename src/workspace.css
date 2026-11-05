@@ -411,17 +411,11 @@ kbd {
 .learning-workspace .workspace-grid {
   gap: 0;
   margin-bottom: 0;
-  grid-template-columns: minmax(0, var(--visual-size)) minmax(
-      0,
-      var(--code-size)
-    );
+  grid-template-columns: minmax(0, var(--visual-size)) minmax(0, var(--code-size));
   align-items: stretch;
 }
 .learning-workspace .workspace-grid.code-left {
-  grid-template-columns: minmax(0, var(--code-size)) minmax(
-      0,
-      var(--visual-size)
-    );
+  grid-template-columns: minmax(0, var(--code-size)) minmax(0, var(--visual-size));
 }
 .learning-workspace .card {
   border: 0;
@@ -539,11 +533,7 @@ kbd {
   color: var(--discarded);
   border: 1px dashed var(--discarded);
   box-shadow: none;
-  background-image: repeating-linear-gradient(
-    135deg,
-    transparent 0 6px,
-    var(--border) 6px 7px
-  );
+  background-image: repeating-linear-gradient(135deg, transparent 0 6px, var(--border) 6px 7px);
 }
 .array-column.active .array-value {
   background: var(--current-soft);
@@ -914,10 +904,7 @@ kbd {
   }
   .learning-workspace .workspace-grid,
   .learning-workspace .workspace-grid.code-left {
-    grid-template-columns: minmax(0, var(--visual-size)) minmax(
-        0,
-        var(--code-size)
-      );
+    grid-template-columns: minmax(0, var(--visual-size)) minmax(0, var(--code-size));
   }
   .learning-workspace .code-card {
     order: 0;

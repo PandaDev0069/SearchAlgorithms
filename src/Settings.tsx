@@ -29,9 +29,7 @@ export function Settings({
         MAKE IT YOURS
       </span>
       <h2 id="modal-title">自分に合った学習環境へ。</h2>
-      <p className="modal-description">
-        変更はすぐ反映され、このブラウザーに保存されます。
-      </p>
+      <p className="modal-description">変更はすぐ反映され、このブラウザーに保存されます。</p>
       <fieldset className="settings-group">
         <legend>
           <Palette size={16} />
@@ -43,7 +41,7 @@ export function Settings({
               { id: "system", label: "システム", icon: Monitor },
               { id: "light", label: "ライト", icon: Sun },
               { id: "dark", label: "ダーク", icon: Moon },
-              { id: "paper", label: "ペーパー", icon: BookIcon },
+              { id: "paper", label: "ペーパー", icon: Type },
             ] as const
           ).map((theme) => (
             <button
@@ -124,9 +122,7 @@ export function Settings({
           <select
             id="font-family"
             value={value.font}
-            onChange={(e) =>
-              onChange({ font: e.target.value as Preferences["font"] })
-            }
+            onChange={(e) => onChange({ font: e.target.value as Preferences["font"] })}
           >
             <option value="noto">Noto Sans JP</option>
             <option value="system">端末の標準フォント</option>
@@ -138,9 +134,7 @@ export function Settings({
           <select
             id="density"
             value={value.density}
-            onChange={(e) =>
-              onChange({ density: e.target.value as Preferences["density"] })
-            }
+            onChange={(e) => onChange({ density: e.target.value as Preferences["density"] })}
           >
             <option value="comfortable">ゆったり</option>
             <option value="compact">コンパクト</option>
@@ -183,9 +177,7 @@ export function Settings({
                 min={45}
                 max={80}
                 value={value.splitRatio}
-                onChange={(e) =>
-                  onChange({ splitRatio: Number(e.target.value) })
-                }
+                onChange={(e) => onChange({ splitRatio: Number(e.target.value) })}
               />
             </label>
             <label className="setting-row" htmlFor="code-position">
@@ -285,15 +277,11 @@ export function Settings({
         <RotateCcw size={15} />
         表示設定を初期値に戻す
       </button>
-      <p className="setting-note">
-        実験データ、学習記録、実績はそのまま残ります。
-      </p>
+      <p className="setting-note">実験データ、学習記録、実績はそのまま残ります。</p>
     </>
   );
 }
-function BookIcon({ size = 20 }: { size?: number }) {
-  return <Type size={size} />;
-}
+
 function Toggle({
   label,
   checked,
