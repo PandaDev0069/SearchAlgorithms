@@ -231,7 +231,7 @@ export function Settings({
           onChange={(showTrace) => onChange({ showTrace })}
         />
         <p className="setting-note">
-          集中レイアウトでは紹介とコードを隠します。狭い画面では横並びも自動で縦並びになります。
+          タブレットでは横並びを保ち、スマートフォンでは対応するコード行を可視化の上に表示します。集中レイアウトではコードを隠します。
         </p>
       </fieldset>
       <fieldset className="settings-group">
@@ -239,6 +239,11 @@ export function Settings({
           <Accessibility size={16} />
           操作とアクセシビリティ
         </legend>
+        <Toggle
+          label="再生のキーボードショートカット"
+          checked={value.shortcuts}
+          onChange={(shortcuts) => onChange({ shortcuts })}
+        />
         <Toggle
           label="色に加えて枠線・模様で区別"
           checked={value.highContrast}

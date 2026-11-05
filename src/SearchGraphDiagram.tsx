@@ -43,6 +43,7 @@ export function SearchGraphDiagram({ id, values, frame }: { id: AdvancedId; valu
               <g key={node.id} className={`search-node ${pruned ? 'pruned' : frame.active.includes(node.id) ? 'active' : frame.found.includes(node.id) ? 'found' : frame.visited.includes(node.id) ? 'visited' : ''}`}>
                 <title>{`ノード ${node.id}：${node.kind.toUpperCase()}、${display}${pruned ? '（枝刈り・未訪問）' : ''}`}</title>
                 <rect x={x(node.id) - 32} y={y(node.id) - 25} width="64" height="50" rx={node.kind === 'leaf' ? 20 : 8} />
+                {(frame.active.includes(node.id) || frame.found.includes(node.id)) && <text className="node-state" x={x(node.id)} y={y(node.id) - 29} textAnchor="middle">{frame.found.includes(node.id) ? '✓' : '▼'}</text>}
                 <text className="search-node-kind" x={x(node.id)} y={y(node.id) - 9} textAnchor="middle">{node.kind === 'leaf' ? `#${node.id}` : node.kind.toUpperCase()}</text>
                 <text x={x(node.id)} y={y(node.id) + 12} textAnchor="middle">{display}</text>
                 {pruned && <line className="pruned-mark" x1={x(node.id) - 28} y1={y(node.id) + 22} x2={x(node.id) + 28} y2={y(node.id) - 22} />}

@@ -1,5 +1,7 @@
 # 探索ラボ / Tansaku Lab
 
+UI/UX の監査結果、状態色のコントラスト、画面幅ごとの構成、検証の制約は [UX-AUDIT.md](./UX-AUDIT.md) を参照してください。
+
 大学で学ぶ探索アルゴリズムを、日本語の説明・可視化・トレース表で学ぶ Web アプリです。React、TypeScript、Vite で実装し、ローカルでも Vercel でも動かせます。
 
 ## 起動

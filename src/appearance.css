@@ -1771,7 +1771,7 @@ h1 > span:after {
 }
 [data-contrast="high"] .array-column.active .array-value,
 [data-contrast="high"] .maze-cell.current:not(.wall) {
-  border: 2px dashed var(--warning);
+  border: 2px dashed var(--current);
 }
 [data-contrast="high"] .array-column.found .array-value,
 [data-contrast="high"] .maze-cell.path:not(.wall) {

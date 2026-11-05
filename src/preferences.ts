@@ -18,6 +18,7 @@ export type Preferences = {
   pauseWhenHidden: boolean;
   loop: boolean;
   resume: boolean;
+  shortcuts: boolean;
   speed: number;
 };
 
@@ -29,7 +30,7 @@ export const defaultPreferences: Preferences = {
   font: "noto",
   layout: "split",
   codePosition: "right",
-  splitRatio: 65,
+  splitRatio: 55,
   density: "comfortable",
   wide: false,
   sidebarCollapsed: false,
@@ -42,6 +43,7 @@ export const defaultPreferences: Preferences = {
   pauseWhenHidden: true,
   loop: false,
   resume: true,
+  shortcuts: true,
   speed: 1,
 };
 

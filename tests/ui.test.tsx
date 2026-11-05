@@ -32,16 +32,164 @@ Object.defineProperty(window, "matchMedia", {
   }),
   configurable: true,
 });
-const { render, screen, fireEvent, cleanup, waitFor, within } =
-  await import("@testing-library/react");
+const { render, screen, fireEvent, cleanup, waitFor, within } = await import(
+  "@testing-library/react"
+);
 const { default: userEvent } = await import("@testing-library/user-event");
 const { default: App } = await import("../src/App.tsx");
+const { algorithms, searchFrames, defaultArray } = await import(
+  "../src/algorithms.ts"
+);
 beforeEach(() => {
   localStorage.clear();
   window.history.replaceState(null, "", "/");
 });
 afterEach(() => {
   cleanup();
+});
+
+test("stepping either direction restores the same code, values and visual state", () => {
+  render(<App />);
+  assert.ok(screen.getByRole("region", { name: "同期実行ワークスペース" }));
+  assert.ok(screen.getByText("1ステップ = 比較・訪問などの操作単位"));
+  assert.equal(/\?{3,}/.test(document.body.textContent ?? ""), false);
+  const frames = searchFrames("binary", defaultArray, 63);
+  const slider = screen.getByRole("slider", {
+    name: "実行ステップ",
+  }) as HTMLInputElement;
+  const watch = screen.getByRole("region", { name: "現在の変数と状態" });
+  const assertSnapshot = (step: number) => {
+    const frame = frames[step];
+    assert.equal(slider.value, String(step));
+    const line = document.querySelector('.code-line[aria-current="step"]')!;
+    assert.equal(
+      line.querySelector("code")?.textContent,
+      algorithms.find((a) => a.id === "binary")!.code[frame.line],
+    );
+    assert.equal(
+      document.querySelector(".current-instruction code")?.textContent,
+      line.querySelector("code")?.textContent,
+    );
+    const values = new Map(
+      [...watch.querySelectorAll("dl > div")].map((entry) => [
+        entry.querySelector("dt")!.textContent,
+        entry.querySelector("dd")!.childNodes[0].textContent,
+      ]),
+    );
+    assert.equal(
+      values.get("mid"),
+      frame.active.length ? String(frame.active[0]) : "—",
+    );
+    assert.equal(values.get("比較回数"), String(frame.comparisons));
+    const current = document.querySelector(
+      ".array-column.active .array-index, .array-column.found .array-index",
+    );
+    assert.equal(
+      current?.textContent,
+      frame.active.length ? String(frame.active[0]) : undefined,
+    );
+  };
+  assertSnapshot(0);
+  fireEvent.click(screen.getByRole("button", { name: "1ステップ進む" }));
+  assertSnapshot(1);
+  const firstWatch = watch.textContent;
+  fireEvent.keyDown(document.body, { code: "ArrowRight", key: "ArrowRight" });
+  assertSnapshot(2);
+  assert.ok(watch.querySelector(".watch-changed"));
+  fireEvent.keyDown(document.body, { code: "ArrowLeft", key: "ArrowLeft" });
+  assertSnapshot(1);
+  assert.equal(
+    watch.textContent?.replaceAll("•", ""),
+    firstWatch?.replaceAll("•", ""),
+  );
+});
+
+test("Space pauses from a transport button, repeat does not toggle, and speed shortcuts preserve the step", () => {
+  render(<App />);
+  const next = screen.getByRole("button", { name: "1ステップ進む" });
+  fireEvent.click(screen.getByRole("button", { name: "再生" }));
+  assert.equal(
+    document.querySelector(".explanation")?.getAttribute("aria-live"),
+    "off",
+  );
+  next.focus();
+  fireEvent.keyDown(next, { code: "Space", key: " " });
+  assert.ok(screen.getByRole("button", { name: "再生" }));
+  assert.equal(
+    document.querySelector(".explanation")?.getAttribute("aria-live"),
+    "polite",
+  );
+  fireEvent.keyDown(next, { code: "Space", key: " ", repeat: true });
+  assert.ok(screen.getByRole("button", { name: "再生" }));
+  const slider = screen.getByRole("slider", {
+    name: "実行ステップ",
+  }) as HTMLInputElement;
+  const speed = screen.getByRole("combobox", {
+    name: "速度",
+  }) as HTMLSelectElement;
+  fireEvent.keyDown(document.body, { code: "BracketRight", key: "]" });
+  assert.equal(speed.value, "2");
+  assert.equal(slider.value, "0");
+  fireEvent.change(speed, { target: { value: "0.5" } });
+  assert.equal(speed.value, "0.5");
+  const data = screen.getByLabelText(/配列のデータ/);
+  fireEvent.keyDown(data, { code: "BracketRight", key: "]" });
+  fireEvent.keyDown(data, { code: "ArrowRight", key: "ArrowRight" });
+  fireEvent.keyDown(data, { code: "Space", key: " " });
+  assert.equal(speed.value, "0.5");
+  assert.equal(slider.value, "0");
+  assert.ok(screen.getByRole("button", { name: "再生" }));
+  fireEvent.click(screen.getByRole("button", { name: "表示設定" }));
+  fireEvent.click(
+    screen.getByRole("switch", { name: "再生のキーボードショートカット" }),
+  );
+  fireEvent.click(
+    within(screen.getByRole("dialog")).getByRole("button", { name: "閉じる" }),
+  );
+  fireEvent.keyDown(document.body, { code: "ArrowRight", key: "ArrowRight" });
+  fireEvent.keyDown(document.body, { code: "Space", key: " " });
+  assert.equal(slider.value, "0");
+  assert.ok(screen.getByRole("button", { name: "再生" }));
+  assert.equal(
+    screen
+      .getByRole("button", { name: "1ステップ進む" })
+      .getAttribute("aria-keyshortcuts"),
+    null,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "1ステップ進む" }));
+  assert.equal(slider.value, "1");
+});
+
+test("navigation drawer traps focus, closes with Escape and hands focus to a selected dialog", async () => {
+  render(<App />);
+  const user = userEvent.setup({ document });
+  const trigger = screen.getByRole("button", { name: "メニューを開く" });
+  fireEvent.click(screen.getByRole("button", { name: "再生" }));
+  fireEvent.click(trigger);
+  assert.equal(trigger.getAttribute("aria-expanded"), "true");
+  const drawer = screen.getByRole("dialog", { name: "実験室と学習ツール" });
+  const last = within(drawer).getByRole("button", { name: "ヘルプ" });
+  last.focus();
+  await user.keyboard("{Tab}");
+  assert.equal(
+    document.activeElement,
+    within(drawer).getByRole("button", { name: "メニューを閉じる" }),
+  );
+  fireEvent.keyDown(document.activeElement!, { code: "Escape", key: "Escape" });
+  assert.equal(trigger.getAttribute("aria-expanded"), "false");
+  assert.equal(document.activeElement, trigger);
+  assert.ok(screen.getByRole("button", { name: "再生" }));
+  fireEvent.click(trigger);
+  fireEvent.click(
+    within(
+      screen.getByRole("dialog", { name: "実験室と学習ツール" }),
+    ).getByRole("button", { name: "表示・操作の設定" }),
+  );
+  assert.equal(screen.getAllByRole("dialog").length, 1);
+  assert.equal(
+    document.activeElement,
+    within(screen.getByRole("dialog")).getByRole("button", { name: "閉じる" }),
+  );
 });
 
 test("appearance, layout and accessible display controls apply immediately and survive remount", async () => {
@@ -228,15 +376,29 @@ test("problem decomposition and AND/OR graphs support editing, solutions and fai
   fireEvent.change(input, { target: { value: "-3, 5, 5, 0" } });
   fireEvent.click(screen.getByRole("button", { name: "適用" }));
   fireEvent.click(screen.getByRole("button", { name: "最後まで進む" }));
-  assert.ok(within(screen.getByRole("region", { name: "アルゴリズムの可視化" })).getByText("部分問題を結合しました。総和は 7 です。"));
-  fireEvent.change(screen.getByLabelText("アルゴリズム"), { target: { value: "and-or" } });
-  assert.ok(screen.getByRole("img", { name: "共有する終端を持つ AND/OR グラフ" }));
+  assert.ok(
+    within(
+      screen.getByRole("region", { name: "アルゴリズムの可視化" }),
+    ).getByText("部分問題を結合しました。総和は 7 です。"),
+  );
+  fireEvent.change(screen.getByLabelText("アルゴリズム"), {
+    target: { value: "and-or" },
+  });
+  assert.ok(
+    screen.getByRole("img", { name: "共有する終端を持つ AND/OR グラフ" }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "最後まで進む" }));
   assert.ok(document.querySelectorAll(".search-edge.selected").length > 0);
-  fireEvent.change(screen.getByLabelText(/終端の成否/), { target: { value: "0, 1, 0" } });
+  fireEvent.change(screen.getByLabelText(/終端の成否/), {
+    target: { value: "0, 1, 0" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "適用" }));
   fireEvent.click(screen.getByRole("button", { name: "最後まで進む" }));
-  assert.ok(within(screen.getByRole("region", { name: "アルゴリズムの可視化" })).getByText("根の問題を解決できる選択肢はありません。"));
+  assert.ok(
+    within(
+      screen.getByRole("region", { name: "アルゴリズムの可視化" }),
+    ).getByText("根の問題を解決できる選択肢はありません。"),
+  );
   assert.equal(document.querySelectorAll(".search-edge.selected").length, 0);
 });
 
@@ -246,11 +408,21 @@ test("game search renders pruning, compares results and restores the saved exper
   const input = screen.getByLabelText(/終端局面の評価値/);
   fireEvent.change(input, { target: { value: "5, 6, 3, 9" } });
   fireEvent.click(screen.getByRole("button", { name: "適用" }));
-  fireEvent.change(screen.getByLabelText("アルゴリズム"), { target: { value: "alpha-beta" } });
+  fireEvent.change(screen.getByLabelText("アルゴリズム"), {
+    target: { value: "alpha-beta" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "最後まで進む" }));
-  assert.ok(within(screen.getByRole("region", { name: "アルゴリズムの可視化" })).getByText(/根の評価値は 5/));
+  assert.ok(
+    within(
+      screen.getByRole("region", { name: "アルゴリズムの可視化" }),
+    ).getByText(/根の評価値は 5/),
+  );
   assert.equal(document.querySelectorAll(".search-node.pruned").length, 1);
-  assert.ok(within(screen.getByRole("region", { name: "アルゴリズムの可視化" })).getByText("≤3"));
+  assert.ok(
+    within(
+      screen.getByRole("region", { name: "アルゴリズムの可視化" }),
+    ).getByText("≤3"),
+  );
   assert.ok(screen.getByRole("columnheader", { name: "α" }));
   fireEvent.click(screen.getByRole("button", { name: "比較してみる" }));
   const dialog = within(screen.getByRole("dialog"));
@@ -258,14 +430,35 @@ test("game search renders pruning, compares results and restores the saved exper
   assert.ok(dialog.getByText("全局面を走査（最善手の選択なし）"));
   fireEvent.keyDown(document, { key: "Escape" });
   fireEvent.click(screen.getByRole("button", { name: "元に戻す" }));
-  assert.equal((screen.getByLabelText(/終端局面の評価値/) as HTMLInputElement).value, "3, 5, 6, 9, 1, 2, 0, -1");
+  assert.equal(
+    (screen.getByLabelText(/終端局面の評価値/) as HTMLInputElement).value,
+    "3, 5, 6, 9, 1, 2, 0, -1",
+  );
   fireEvent.click(screen.getByRole("button", { name: "やり直す" }));
-  await waitFor(() => assert.ok(localStorage.getItem("tansaku-experiment-v1")?.includes('"algorithmId":"alpha-beta"')));
+  await waitFor(() =>
+    assert.ok(
+      localStorage
+        .getItem("tansaku-experiment-v1")
+        ?.includes('"algorithmId":"alpha-beta"'),
+    ),
+  );
   view.unmount();
   render(<App />);
-  assert.equal((screen.getByLabelText("アルゴリズム") as HTMLSelectElement).value, "alpha-beta");
-  assert.equal((screen.getByLabelText(/終端局面の評価値/) as HTMLInputElement).value, "5, 6, 3, 9");
-  assert.equal((screen.getByRole("slider", { name: "実行ステップ" }) as HTMLInputElement).value, "0");
+  assert.equal(
+    (screen.getByLabelText("アルゴリズム") as HTMLSelectElement).value,
+    "alpha-beta",
+  );
+  assert.equal(
+    (screen.getByLabelText(/終端局面の評価値/) as HTMLInputElement).value,
+    "5, 6, 3, 9",
+  );
+  assert.equal(
+    (screen.getByRole("slider", { name: "実行ステップ" }) as HTMLInputElement)
+      .value,
+    "0",
+  );
   assert.ok(screen.getByRole("button", { name: "再生" }));
-  assert.ok(localStorage.getItem("tansaku-learning-v1")?.includes("alpha-beta"));
+  assert.ok(
+    localStorage.getItem("tansaku-learning-v1")?.includes("alpha-beta"),
+  );
 });

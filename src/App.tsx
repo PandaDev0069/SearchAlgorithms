@@ -20,18 +20,13 @@ import {
   ListFilter,
   Menu,
   MousePointer2,
-  Pause,
   Play,
   Plus,
-  RotateCcw,
   Search,
   Shuffle,
-  SkipForward,
   Sparkles,
-  StepBack,
   StepForward,
   Target,
-  Timer,
   Workflow,
   X,
   Columns2,
@@ -71,7 +66,13 @@ import {
 import { usePreferences } from "./usePreferences";
 import { readStored, writeStored } from "./preferences";
 import { Settings } from "./Settings";
-import { LearningAdventure, LearningCard } from "./LearningAdventure";
+import { LearningAdventure } from "./LearningAdventure";
+import {
+  CurrentInstruction,
+  PlaybackControls,
+  WatchStates,
+  playbackSpeeds,
+} from "./ExecutionPanel";
 import {
   emptyLearning,
   getStudyDay,
@@ -91,9 +92,18 @@ import {
   validateExperiment,
 } from "./experiment";
 import type { Experiment } from "./experiment";
-import { advancedFrames, buildSearchGraph, defaultGame, defaultProblem } from "./advancedSearch";
+import {
+  advancedFrames,
+  buildSearchGraph,
+  defaultGame,
+  defaultProblem,
+} from "./advancedSearch";
 import type { AdvancedId } from "./advancedSearch";
-import { formatNodeScore, formatScore, SearchGraphDiagram } from "./SearchGraphDiagram";
+import {
+  formatNodeScore,
+  formatScore,
+  SearchGraphDiagram,
+} from "./SearchGraphDiagram";
 
 const categories: {
   id: Category;
@@ -131,11 +141,17 @@ const categories: {
     description: "ばらばらの値が、秩序に変わる瞬間。",
   },
   {
-    id: "problem", name: "問題の分解と探索", en: "PROBLEM DECOMPOSITION", icon: Layers3,
+    id: "problem",
+    name: "問題の分解と探索",
+    en: "PROBLEM DECOMPOSITION",
+    icon: Layers3,
     description: "部分問題に分けて、答えを組み合わせよう。",
   },
   {
-    id: "game", name: "ゲーム探索", en: "GAME SEARCH", icon: GitBranch,
+    id: "game",
+    name: "ゲーム探索",
+    en: "GAME SEARCH",
+    icon: GitBranch,
     description: "相手の最善の応手まで読んで、次の一手を選ぼう。",
   },
 ];
@@ -197,6 +213,11 @@ function App() {
   const [traceTab, setTraceTab] = useState<"table" | "chart">("table");
   const [modal, setModal] = useState<Modal>(null),
     [mobileMenu, setMobileMenu] = useState(false);
+  const [compactNavigation, setCompactNavigation] = useState(
+    () =>
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(max-width: 1100px)").matches,
+  );
   const [paint, setPaint] = useState<
     "wall" | "erase" | "weight" | "start" | "goal"
   >("wall");
@@ -228,7 +249,10 @@ function App() {
     [jumpInput, setJumpInput] = useState("");
   const [mazeFocus, setMazeFocus] = useState(initial.experiment.start);
   const fileInput = useRef<HTMLInputElement>(null);
+  const activeCodeLine = useRef<HTMLDivElement>(null);
   const modalContainer = useRef<HTMLElement>(null);
+  const navigationContainer = useRef<HTMLElement>(null);
+  const menuTrigger = useRef<HTMLButtonElement>(null);
   const dragging = useRef(false),
     dragValue = useRef(1),
     currentTrace = useRef<HTMLTableRowElement>(null);
@@ -237,7 +261,10 @@ function App() {
   const CategoryIcon = categoryInfo.icon;
   const values = category === "maze" ? grid : data[category];
   const isGraph = category === "problem" || category === "game";
-  const graphNodes = useMemo(() => isGraph ? buildSearchGraph(algorithmId as AdvancedId, values) : [], [isGraph, algorithmId, values]);
+  const graphNodes = useMemo(
+    () => (isGraph ? buildSearchGraph(algorithmId as AdvancedId, values) : []),
+    [isGraph, algorithmId, values],
+  );
   const frames = useMemo(
     () =>
       category === "maze"
@@ -291,6 +318,16 @@ function App() {
     [experiment],
   );
 
+  useEffect(() => {
+    const media = window.matchMedia?.("(max-width: 1100px)");
+    if (!media) return;
+    const change = (event: MediaQueryListEvent) => {
+      setCompactNavigation(event.matches);
+      if (!event.matches) setMobileMenu(false);
+    };
+    media.addEventListener("change", change);
+    return () => media.removeEventListener("change", change);
+  }, []);
   useEffect(() => {
     if (!playing) return;
     const timer = window.setInterval(
@@ -379,6 +416,21 @@ function App() {
     return () => document.removeEventListener("fullscreenchange", change);
   }, []);
   useEffect(() => {
+    const row = activeCodeLine.current;
+    const pane = row?.closest<HTMLElement>(".code-content");
+    if (!row || !pane) return;
+    const rowBox = row.getBoundingClientRect();
+    const paneBox = pane.getBoundingClientRect();
+    if (rowBox.top < paneBox.top || rowBox.bottom > paneBox.bottom)
+      pane.scrollTop += rowBox.top - paneBox.top - pane.clientHeight / 3;
+  }, [
+    safeStep,
+    algorithmId,
+    codeTab,
+    preferences.showCode,
+    preferences.layout,
+  ]);
+  useEffect(() => {
     if (!preferences.followTrace) return;
     const row = currentTrace.current,
       container = row?.closest(".trace-scroll");
@@ -446,13 +498,50 @@ function App() {
     setPlaying((p) => !p);
   }, [ended]);
   useEffect(() => {
+    if (!mobileMenu) return;
+    setPlaying(false);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    navigationContainer.current
+      ?.querySelector<HTMLElement>('[aria-current="page"]')
+      ?.focus();
+    const closeOrTrap = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMobileMenu(false);
+      }
+      if (event.key !== "Tab") return;
+      const controls =
+        navigationContainer.current?.querySelectorAll<HTMLElement>(
+          "a[href], button:not(:disabled)",
+        );
+      if (!controls?.length) return;
+      const first = controls[0],
+        last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", closeOrTrap);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", closeOrTrap);
+      menuTrigger.current?.focus();
+    };
+  }, [mobileMenu]);
+  useEffect(() => {
     const keydown = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
       const el = e.target as HTMLElement;
       if (
         ["INPUT", "SELECT", "TEXTAREA"].includes(el.tagName) ||
         el.isContentEditable ||
-        modal
+        modal ||
+        mobileMenu
       )
         return;
       if (e.ctrlKey || e.metaKey) {
@@ -466,8 +555,30 @@ function App() {
         }
         return;
       }
-      if (el.tagName === "BUTTON" && (e.code === "Space" || e.code === "Enter"))
+      if (!preferences.shortcuts) return;
+      if (e.altKey || e.isComposing) return;
+      if (e.code === "Space" && e.repeat) {
+        e.preventDefault();
         return;
+      }
+      if (
+        el.closest("button, a, summary, [role='tab']") &&
+        (e.code === "Space" || e.code === "Enter")
+      ) {
+        if (e.code !== "Space" || !el.closest(".transport")) return;
+      }
+      if (e.code === "BracketLeft" || e.code === "BracketRight") {
+        e.preventDefault();
+        const index = playbackSpeeds.indexOf(speed);
+        const next = Math.max(
+          0,
+          Math.min(
+            playbackSpeeds.length - 1,
+            index + (e.code === "BracketRight" ? 1 : -1),
+          ),
+        );
+        updatePreferences({ speed: playbackSpeeds[next] });
+      }
       if (e.code === "Space") {
         e.preventDefault();
         togglePlay();
@@ -493,16 +604,32 @@ function App() {
       if (e.key.toLowerCase() === "r") reset();
       if (e.key === "?") {
         e.preventDefault();
-        setModal("help");
+        openModal("help");
       }
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, [togglePlay, frames.length, reset, modal, past, future, experiment]);
+  }, [
+    togglePlay,
+    frames.length,
+    reset,
+    modal,
+    mobileMenu,
+    past,
+    future,
+    experiment,
+    speed,
+    updatePreferences,
+    preferences.shortcuts,
+  ]);
 
   function remember() {
     setPast((previous) => [...previous.slice(-29), experiment]);
     setFuture([]);
+  }
+  function openModal(next: Exclude<Modal, null>) {
+    setMobileMenu(false);
+    setModal(next);
   }
   function restore(next: Experiment, record = true) {
     if (record) remember();
@@ -632,8 +759,11 @@ function App() {
         ? [...defaultArray]
         : category === "tree"
           ? [...defaultTree]
-          : category === "problem" ? [...defaultProblem]
-            : category === "game" ? [...defaultGame] : [...defaultSort];
+          : category === "problem"
+            ? [...defaultProblem]
+            : category === "game"
+              ? [...defaultGame]
+              : [...defaultSort];
     if (preset === "reverse") next.sort((a, b) => b - a);
     if (preset === "duplicates") next = [8, 3, 8, 1, 3, 5, 8, 5];
     if (preset === "negative") next = [-12, 7, -3, 0, 15, -8, 4];
@@ -709,10 +839,11 @@ function App() {
       setGoal(GOAL);
       return;
     }
-    let next = Array.from(
-      { length: presetSize[category] },
-      () => category === "problem" ? Math.round(Math.random())
-        : category === "game" ? Math.floor(Math.random() * 21) - 10
+    let next = Array.from({ length: presetSize[category] }, () =>
+      category === "problem"
+        ? Math.round(Math.random())
+        : category === "game"
+          ? Math.floor(Math.random() * 21) - 10
           : Math.floor(Math.random() * 96) + 3,
     );
     if (category === "array" && algorithmId !== "linear")
@@ -786,7 +917,10 @@ function App() {
         "g（実コスト）",
         "h（予測）",
         "f（評価値）",
-        "α", "β", "根の評価値・総和・成否", "枝刈りノード",
+        "α",
+        "β",
+        "根の評価値・総和・成否",
+        "枝刈りノード",
         "比較・訪問回数",
         "交換回数",
         "移動コスト",
@@ -799,7 +933,9 @@ function App() {
           .map((n) =>
             category === "maze"
               ? `(${Math.floor(n / COLS)},${n % COLS})`
-              : isGraph ? formatNodeScore(f, n) : f.array[n],
+              : isGraph
+                ? formatNodeScore(f, n)
+                : f.array[n],
           )
           .join(" / "),
         f.left ?? "",
@@ -812,7 +948,8 @@ function App() {
         f.f ?? "",
         f.alpha === undefined ? "" : formatScore(f.alpha),
         f.beta === undefined ? "" : formatScore(f.beta),
-        f.value ?? "", f.pruned?.join(" / ") ?? "",
+        f.value ?? "",
+        f.pruned?.join(" / ") ?? "",
         f.comparisons,
         f.swaps,
         f.cost ?? "",
@@ -858,7 +995,22 @@ function App() {
       {mobileMenu && (
         <div className="sidebar-scrim" onClick={() => setMobileMenu(false)} />
       )}
-      <aside className={`sidebar ${mobileMenu ? "open" : ""}`}>
+      <aside
+        ref={navigationContainer}
+        id="lab-navigation"
+        className={`sidebar ${mobileMenu ? "open" : ""}`}
+        inert={modal || (compactNavigation && !mobileMenu) ? true : undefined}
+        role={mobileMenu ? "dialog" : undefined}
+        aria-modal={mobileMenu ? true : undefined}
+        aria-label="実験室と学習ツール"
+      >
+        <button
+          className="navigation-close icon-button"
+          aria-label="メニューを閉じる"
+          onClick={() => setMobileMenu(false)}
+        >
+          <X size={20} />
+        </button>
         <a
           className="brand"
           href="#"
@@ -899,23 +1051,18 @@ function App() {
         </nav>
         <div className="sidebar-separator" />
         <div className="sidebar-label">学習ツール</div>
-        <button className="nav-item" onClick={() => setModal("compare")}>
+        <button className="nav-item" onClick={() => openModal("compare")}>
           <Layers3 size={18} />
           <span>アルゴリズム比較</span>
           <ArrowUpRight size={14} />
         </button>
-        <button className="nav-item" onClick={() => setModal("help")}>
+        <button className="nav-item" onClick={() => openModal("help")}>
           <BookOpen size={18} />
           <span>使い方ガイド</span>
         </button>
-        <LearningCard
-          state={learning}
-          today={today}
-          onOpen={() => setModal("learning")}
-        />
         <button
           className="nav-item"
-          onClick={() => setModal("learning")}
+          onClick={() => openModal("learning")}
           aria-label="学習の冒険"
         >
           <Gem size={18} />
@@ -923,7 +1070,7 @@ function App() {
         </button>
         <button
           className="nav-item"
-          onClick={() => setModal("settings")}
+          onClick={() => openModal("settings")}
           aria-label="表示・操作の設定"
         >
           <Settings2 size={18} />
@@ -932,18 +1079,24 @@ function App() {
         <div className="sidebar-bottom">
           <span className="online-dot" />
           ブラウザで、すべて完結。
-          <button onClick={() => setModal("help")} aria-label="ヘルプ">
+          <button onClick={() => openModal("help")} aria-label="ヘルプ">
             <CircleHelp size={17} />
           </button>
         </div>
       </aside>
-      <div className="main-shell">
+      <div
+        className="main-shell"
+        inert={mobileMenu || modal ? true : undefined}
+      >
         <header className="topbar">
           <div className="breadcrumbs">
             <button
               className="mobile-menu icon-button"
+              ref={menuTrigger}
               onClick={() => setMobileMenu((v) => !v)}
               aria-label="メニューを開く"
+              aria-expanded={mobileMenu}
+              aria-controls="lab-navigation"
             >
               <Menu size={20} />
             </button>
@@ -1009,7 +1162,7 @@ function App() {
             </button>
             <button
               className="settings-button secondary-button"
-              onClick={() => setModal("settings")}
+              onClick={() => openModal("settings")}
             >
               <Settings2 size={16} />
               表示設定
@@ -1019,39 +1172,11 @@ function App() {
         <main id="workspace-main" tabIndex={-1}>
           <section className="intro">
             <div>
-              <div className="eyebrow">
-                <span />
-                LEARN BY EXPLORING
-              </div>
-              <h1>
-                {category === "sort"
-                  ? "整列を、"
-                  : category === "tree"
-                    ? "構造を、"
-                    : category === "game" ? "次の一手を、"
-                    : category === "problem" ? "問題の分解を、"
-                    : category === "maze"
-                      ? "道すじを、"
-                      : "探索を、"}
-                <span>ひと目で。</span>
-              </h1>
-              <p>アルゴリズムの「なぜ？」を、動かして理解しよう。</p>
+              <h1>{categoryInfo.name}</h1>
             </div>
-            <div className="intro-note">
-              <span className="note-icon">
-                <MousePointer2 size={19} />
-              </span>
-              <div>
-                <strong>見て、触れて、理解する。</strong>
-                <p>
-                  {category === "maze"
-                    ? "マスをなぞって、自分だけの迷路を。"
-                    : isGraph ? "終端の値を変えて、答えを比べてみよう。"
-                    : "データも目標も、自由に変えてみよう。"}
-                </p>
-              </div>
-              <span className="note-spark">✳</span>
-            </div>
+            <p className="learning-prompt">
+              次の変化を予想して、1ステップ進めよう。
+            </p>
           </section>
           <div className="category-tabs" role="tablist" aria-label="カテゴリー">
             {categories.map((c) => (
@@ -1069,104 +1194,6 @@ function App() {
                 {category === c.id && <span className="tab-dot" />}
               </button>
             ))}
-          </div>
-          <div className="workspace-toolbar" aria-label="ワークスペースの操作">
-            <div className="toolbar-layout">
-              <span>レイアウト</span>
-              {(
-                [
-                  { id: "split", label: "横並び", icon: Columns2 },
-                  { id: "stacked", label: "縦並び", icon: LayoutList },
-                  { id: "focus", label: "集中", icon: Maximize2 },
-                ] as const
-              ).map((layout) => (
-                <button
-                  key={layout.id}
-                  aria-label={layout.label + "レイアウト"}
-                  aria-pressed={preferences.layout === layout.id}
-                  className={preferences.layout === layout.id ? "selected" : ""}
-                  onClick={() => updatePreferences({ layout: layout.id })}
-                >
-                  <layout.icon size={16} />
-                  <span>{layout.label}</span>
-                </button>
-              ))}
-            </div>
-            <div className="toolbar-actions">
-              <button
-                className="icon-button"
-                onClick={undo}
-                disabled={!past.length}
-                aria-label="元に戻す"
-                title="元に戻す (Ctrl+Z)"
-              >
-                <Undo2 size={17} />
-              </button>
-              <button
-                className="icon-button"
-                onClick={redo}
-                disabled={!future.length}
-                aria-label="やり直す"
-                title="やり直す (Ctrl+Shift+Z)"
-              >
-                <Redo2 size={17} />
-              </button>
-              <select
-                aria-label="サンプルを読み込む"
-                value=""
-                onChange={(e) => applyPreset(e.target.value)}
-              >
-                <option value="">サンプル</option>
-                <option value="default">初期データ</option>
-                {category === "maze" ? (
-                  <>
-                    <option value="empty">壁なし</option>
-                    <option value="weighted">重み付き</option>
-                  </>
-                ) : (
-                  <>
-                    <option value="reverse">逆順</option>
-                    <option value="duplicates">重複あり</option>
-                    <option value="negative">負の数</option>
-                    {category === "tree" && (
-                      <option value="skewed">偏った木</option>
-                    )}
-                  </>
-                )}
-              </select>
-              <button
-                className="icon-button"
-                onClick={() => fileInput.current?.click()}
-                aria-label="実験を読み込む"
-                title="JSONを読み込む"
-              >
-                <Upload size={17} />
-              </button>
-              <button
-                className="icon-button"
-                onClick={exportExperiment}
-                aria-label="実験を保存"
-                title="JSONで保存"
-              >
-                <Download size={17} />
-              </button>
-              <button
-                className="icon-button"
-                onClick={() => setModal("share")}
-                aria-label="実験を共有"
-                title="実験の共有リンク"
-              >
-                <Share2 size={17} />
-              </button>
-              <button
-                className="icon-button"
-                onClick={toggleFullscreen}
-                disabled={!document.documentElement.requestFullscreen}
-                aria-label={fullscreen ? "全画面表示を終了" : "全画面表示"}
-              >
-                {fullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
-              </button>
-            </div>
           </div>
 
           <section
@@ -1213,11 +1240,33 @@ function App() {
               </div>
             </div>
             <div className="setup-description">
-              <p>{algorithm.description}</p>
               <span>
                 <CheckCircle2 size={13} />
                 {algorithm.condition}
               </span>
+              <select
+                aria-label="サンプルを読み込む"
+                value=""
+                onChange={(e) => applyPreset(e.target.value)}
+              >
+                <option value="">サンプル</option>
+                <option value="default">初期データ</option>
+                {category === "maze" ? (
+                  <>
+                    <option value="empty">壁なし</option>
+                    <option value="weighted">重み付き</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="reverse">逆順</option>
+                    <option value="duplicates">重複あり</option>
+                    <option value="negative">負の数</option>
+                    {category === "tree" && (
+                      <option value="skewed">偏った木</option>
+                    )}
+                  </>
+                )}
+              </select>
             </div>
             {category !== "maze" ? (
               <div className="data-controls">
@@ -1225,8 +1274,12 @@ function App() {
                   <label htmlFor="array-input">
                     {category === "tree"
                       ? "挿入する値（入力順）"
-                      : category === "game" ? "終端局面の評価値（左から）"
-                        : category === "problem" ? algorithmId === "and-or" ? "終端の成否（0 は失敗、0 以外は成功）" : "分解して合計する値"
+                      : category === "game"
+                        ? "終端局面の評価値（左から）"
+                        : category === "problem"
+                          ? algorithmId === "and-or"
+                            ? "終端の成否（0 は失敗、0 以外は成功）"
+                            : "分解して合計する値"
                           : "配列のデータ"}
                     <span>最大 {category === "tree" ? "31" : "32"} 個</span>
                   </label>
@@ -1338,441 +1391,525 @@ function App() {
             )}
           </section>
 
-          <div
-            className={`workspace-grid ${!preferences.showCode || preferences.layout === "focus" ? "no-code" : ""} ${preferences.codePosition === "left" ? "code-left" : ""}`}
+          <section
+            className="learning-workspace"
+            aria-label="同期実行ワークスペース"
           >
-            <section
-              className="visualizer-card card"
-              aria-label="アルゴリズムの可視化"
+            <div className="workspace-caption">
+              <span>
+                <span className="sync-mark" /> 可視化とコードを同期
+              </span>
+              <span>1ステップ = 比較・訪問などの操作単位</span>
+            </div>
+            <PlaybackControls
+              playing={playing}
+              ended={ended}
+              step={safeStep}
+              lastStep={frames.length - 1}
+              speed={speed}
+              shortcuts={preferences.shortcuts}
+              onToggle={togglePlay}
+              onReset={reset}
+              onSeek={seek}
+              onSpeed={(next) => updatePreferences({ speed: next })}
+            />
+            <WatchStates
+              frame={frame}
+              previous={frames[safeStep - 1]}
+              category={category}
+              algorithmId={algorithmId}
+              target={target}
+            />
+            <div
+              className={`workspace-grid ${!preferences.showCode || preferences.layout === "focus" ? "no-code" : ""} ${preferences.codePosition === "left" ? "code-left" : ""}`}
             >
-              <div className="panel-heading">
-                <div className="panel-title">
-                  <span className="tiny-icon">
-                    <CategoryIcon size={16} />
-                  </span>
-                  <h2>{categoryInfo.name}</h2>
-                  <span className="muted">
-                    {category === "maze"
-                      ? `${COLS} × ${ROWS}`
-                      : isGraph ? `${graphNodes.length} ノード`
-                        : `${category === "tree" ? buildTree(values).length : values.length} ${category === "tree" ? "ノード" : "要素"}`}
-                  </span>
+              <section
+                className="visualizer-card card"
+                aria-label="アルゴリズムの可視化"
+              >
+                <div className="panel-heading">
+                  <div className="panel-title">
+                    <span className="tiny-icon">
+                      <CategoryIcon size={16} />
+                    </span>
+                    <h2>{categoryInfo.name}</h2>
+                    <span className="muted">
+                      {category === "maze"
+                        ? `${COLS} × ${ROWS}`
+                        : isGraph
+                          ? `${graphNodes.length} ノード`
+                          : `${category === "tree" ? buildTree(values).length : values.length} ${category === "tree" ? "ノード" : "要素"}`}
+                    </span>
+                  </div>
+                  {category === "array" || category === "sort" ? (
+                    <div className="segmented">
+                      <button
+                        className={view === "boxes" ? "selected" : ""}
+                        onClick={() => setView("boxes")}
+                        aria-label="ボックス表示"
+                        title="ボックス表示"
+                      >
+                        <Braces size={15} />
+                      </button>
+                      <button
+                        className={view === "bars" ? "selected" : ""}
+                        onClick={() => setView("bars")}
+                        aria-label="棒グラフ表示"
+                        title="棒グラフ表示"
+                      >
+                        <BarChart3 size={15} />
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="canvas-hint">
+                      {category === "maze"
+                        ? "クリック・ドラッグで編集"
+                        : isGraph
+                          ? "終端の値は上の入力欄で編集"
+                          : "ノードをクリックして目標に設定"}
+                    </span>
+                  )}
                 </div>
-                {category === "array" || category === "sort" ? (
-                  <div className="segmented">
-                    <button
-                      className={view === "boxes" ? "selected" : ""}
-                      onClick={() => setView("boxes")}
-                      aria-label="ボックス表示"
-                      title="ボックス表示"
+                {preferences.showCode && preferences.layout !== "focus" && (
+                  <CurrentInstruction
+                    lines={algorithm.code}
+                    line={frame.line}
+                  />
+                )}
+                <div className="legend">
+                  <span>
+                    <i className="legend-range" aria-hidden="true" />
+                    {category === "maze"
+                      ? "探索待ち"
+                      : category === "tree" || isGraph
+                        ? "未訪問"
+                        : "探索範囲"}
+                  </span>
+                  <span>
+                    <i
+                      className={
+                        category === "sort"
+                          ? "legend-compare"
+                          : "legend-current"
+                      }
+                      aria-hidden="true"
+                    />
+                    {category === "sort" ? "比較中" : "現在の位置"}
+                  </span>
+                  {category === "array" && (
+                    <span>
+                      <i className="legend-compare" aria-hidden="true" />
+                      値の比較
+                    </span>
+                  )}
+                  <span>
+                    <i className="legend-visited" aria-hidden="true" />
+                    {category === "sort" ? "未確定" : "確認済み"}
+                  </span>
+                  <span>
+                    <i className="legend-found" aria-hidden="true" />
+                    {category === "maze"
+                      ? "経路"
+                      : category === "sort"
+                        ? "整列完了"
+                        : isGraph
+                          ? "解・主変化"
+                          : "発見"}
+                  </span>
+                  {category === "array" && (
+                    <span>
+                      <i className="legend-excluded" aria-hidden="true" />
+                      対象外
+                    </span>
+                  )}
+                </div>
+                {category === "maze" && (
+                  <MazeEvaluation
+                    algorithmId={algorithmId}
+                    frame={frame}
+                    heuristicWeight={heuristicWeight}
+                  />
+                )}
+                {category === "maze" ? (
+                  <div className="maze-wrap">
+                    <div
+                      className="maze-grid"
+                      style={{ gridTemplateColumns: `repeat(${COLS},1fr)` }}
+                      onPointerLeave={() => {
+                        dragging.current = false;
+                      }}
                     >
-                      <Braces size={15} />
-                    </button>
-                    <button
-                      className={view === "bars" ? "selected" : ""}
-                      onClick={() => setView("bars")}
-                      aria-label="棒グラフ表示"
-                      title="棒グラフ表示"
-                    >
-                      <BarChart3 size={15} />
-                    </button>
+                      {grid.map((cell, i) => (
+                        <button
+                          key={i}
+                          className={`maze-cell ${cell === 1 ? "wall" : cell === 5 ? "weighted" : ""} ${frame.visited.includes(i) ? "visited" : ""} ${frame.frontier?.includes(i) ? "frontier" : ""} ${frame.trail?.includes(i) ? "trail" : ""} ${frame.path?.includes(i) ? "path" : ""} ${frame.active.includes(i) ? "current" : ""} ${i === start ? "start" : ""} ${i === goal ? "goal" : ""}`}
+                          aria-label={`マス ${Math.floor(i / COLS)}, ${i % COLS}：${i === start ? "スタート" : i === goal ? "ゴール" : cell === 1 ? "壁" : cell === 5 ? "重み5" : "通路"}`}
+                          tabIndex={i === mazeFocus ? 0 : -1}
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            setMazeFocus(i);
+                            e.currentTarget.focus();
+                            editCell(i, true);
+                          }}
+                          onPointerEnter={() => editCell(i)}
+                          onKeyDown={(e) => mazeKey(e, i)}
+                        >
+                          {i === start ? (
+                            <Play size={12} fill="currentColor" />
+                          ) : i === goal ? (
+                            <Flag size={13} />
+                          ) : cell === 5 ? (
+                            "5"
+                          ) : null}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : isGraph ? (
+                  <SearchGraphDiagram
+                    id={algorithmId as AdvancedId}
+                    values={values}
+                    frame={frame}
+                  />
+                ) : category === "tree" ? (
+                  <TreeDiagram
+                    values={values}
+                    frame={frame}
+                    onPick={pickTarget}
+                  />
+                ) : (
+                  <ArrayDiagram
+                    frame={frame}
+                    target={target}
+                    view={view}
+                    category={category}
+                    onPick={pickTarget}
+                  />
+                )}
+                <div
+                  className={`explanation ${frame.result ? "result-" + frame.result : ""}`}
+                  aria-live={playing ? "off" : "polite"}
+                  aria-atomic="true"
+                >
+                  <span className="explanation-icon">
+                    {frame.result === "found" || frame.result === "complete" ? (
+                      <CheckCircle2 size={18} />
+                    ) : frame.result === "missing" ||
+                      frame.result === "limited" ? (
+                      <CircleHelp size={18} />
+                    ) : (
+                      <MousePointer2 size={18} />
+                    )}
+                  </span>
+                  <div>
+                    <strong>
+                      {frame.result === "found"
+                        ? "見つかりました！"
+                        : frame.result === "complete"
+                          ? category === "sort"
+                            ? "整列が完了しました"
+                            : "探索が完了しました"
+                          : frame.result === "missing"
+                            ? "探索が終了しました"
+                            : frame.result === "limited"
+                              ? "探索の上限に達しました"
+                              : safeStep === 0
+                                ? "準備完了"
+                                : `STEP ${String(safeStep).padStart(2, "0")} — ${category === "maze" ? "マスを訪問" : isGraph ? "ノードの探索・評価" : category === "sort" ? "比較・交換" : "値を比較"}`}
+                    </strong>
+                    <p>{frame.message}</p>
+                  </div>
+                </div>
+              </section>
+              <section
+                className="code-card card"
+                aria-label="擬似コードと解説"
+                hidden={!preferences.showCode || preferences.layout === "focus"}
+              >
+                <div className="code-tabs">
+                  <button
+                    className={codeTab === "code" ? "active" : ""}
+                    onClick={() => setCodeTab("code")}
+                  >
+                    <Code2 size={16} />
+                    擬似コード
+                  </button>
+                  <button
+                    className={codeTab === "about" ? "active" : ""}
+                    onClick={() => setCodeTab("about")}
+                  >
+                    <BookOpen size={15} />
+                    仕組み
+                  </button>
+                  <span>Python</span>
+                </div>
+                {codeTab === "code" ? (
+                  <div className="code-content">
+                    <div className="code-filename">
+                      <i /> {algorithmId.replaceAll("-", "_")}_search.py{" "}
+                      <span>学習用</span>
+                      <button
+                        className="icon-button"
+                        aria-label="擬似コードをコピー"
+                        onClick={() =>
+                          copyText(
+                            algorithm.code.join("\n"),
+                            "擬似コードをコピーしました。",
+                          )
+                        }
+                      >
+                        <Copy size={14} />
+                      </button>
+                    </div>
+                    <div className="code-lines">
+                      {algorithm.code.map((line, i) => (
+                        <div
+                          key={i}
+                          ref={frame.line === i ? activeCodeLine : undefined}
+                          aria-current={frame.line === i ? "step" : undefined}
+                          className={`code-line ${frame.line === i ? "highlighted" : ""}`}
+                        >
+                          <span className="line-indicator">
+                            {frame.line === i ? "›" : ""}
+                          </span>
+                          <span className="line-number">{i + 1}</span>
+                          <code>{colorCode(line)}</code>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="code-footnote">
+                      <span className="code-dot" />
+                      対応行を表示 · 全行の逐次実行ではありません
+                    </div>
                   </div>
                 ) : (
-                  <span className="canvas-hint">
-                    {category === "maze"
-                      ? "クリック・ドラッグで編集"
-                      : isGraph ? "終端の値は上の入力欄で編集"
-                        : "ノードをクリックして目標に設定"}
-                  </span>
+                  <div className="about-content">
+                    <span className="tag">HOW IT WORKS</span>
+                    <h3>{algorithm.name}の仕組み</h3>
+                    <p>{algorithm.description}</p>
+                    <ul>
+                      {algorithm.points.map((point, i) => (
+                        <li key={point}>
+                          <span>{i + 1}</span>
+                          {point}
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="about-complexity">
+                      <Clock3 size={15} />
+                      最悪時間 <b>{algorithm.time}</b>
+                      <Layers3 size={15} />
+                      空間 <b>{algorithm.space}</b>
+                    </div>
+                  </div>
                 )}
-              </div>
-              <div className="legend">
-                <span>
-                  <i className="legend-range" />
-                  {category === "maze"
-                    ? "探索待ち"
-                    : category === "tree" || isGraph
-                      ? "未訪問"
-                      : "探索範囲"}
-                </span>
-                <span>
-                  <i className="legend-current" />
-                  {category === "sort" ? "比較中" : "現在の位置"}
-                </span>
-                <span>
-                  <i className="legend-visited" />
-                  {category === "sort" ? "未確定" : "確認済み"}
-                </span>
-                <span>
-                  <i className="legend-found" />
-                  {category === "maze"
-                    ? "経路"
-                    : category === "sort"
-                      ? "整列完了"
-                      : isGraph ? "解・主変化" : "発見"}
-                </span>
-              </div>
-              {category === "maze" && (
-                <MazeEvaluation
-                  algorithmId={algorithmId}
-                  frame={frame}
-                  heuristicWeight={heuristicWeight}
-                />
-              )}
-              {category === "maze" ? (
-                <div className="maze-wrap">
-                  <div
-                    className="maze-grid"
-                    style={{ gridTemplateColumns: `repeat(${COLS},1fr)` }}
-                    onPointerLeave={() => {
-                      dragging.current = false;
-                    }}
-                  >
-                    {grid.map((cell, i) => (
-                      <button
-                        key={i}
-                        className={`maze-cell ${cell === 1 ? "wall" : cell === 5 ? "weighted" : ""} ${frame.visited.includes(i) ? "visited" : ""} ${frame.frontier?.includes(i) ? "frontier" : ""} ${frame.trail?.includes(i) ? "trail" : ""} ${frame.path?.includes(i) ? "path" : ""} ${frame.active.includes(i) ? "current" : ""} ${i === start ? "start" : ""} ${i === goal ? "goal" : ""}`}
-                        aria-label={`マス ${Math.floor(i / COLS)}, ${i % COLS}：${i === start ? "スタート" : i === goal ? "ゴール" : cell === 1 ? "壁" : cell === 5 ? "重み5" : "通路"}`}
-                        tabIndex={i === mazeFocus ? 0 : -1}
-                        onPointerDown={(e) => {
-                          e.preventDefault();
-                          setMazeFocus(i);
-                          e.currentTarget.focus();
-                          editCell(i, true);
-                        }}
-                        onPointerEnter={() => editCell(i)}
-                        onKeyDown={(e) => mazeKey(e, i)}
-                      >
-                        {i === start ? (
-                          <Play size={12} fill="currentColor" />
-                        ) : i === goal ? (
-                          <Flag size={13} />
-                        ) : cell === 5 ? (
-                          "5"
-                        ) : null}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : isGraph ? (
-                <SearchGraphDiagram id={algorithmId as AdvancedId} values={values} frame={frame} />
-              ) : category === "tree" ? (
-                <TreeDiagram
-                  values={values}
-                  frame={frame}
-                  onPick={pickTarget}
-                />
-              ) : (
-                <ArrayDiagram
-                  frame={frame}
-                  target={target}
-                  view={view}
-                  category={category}
-                  onPick={pickTarget}
-                />
-              )}
-              <div
-                className={`explanation ${frame.result ? "result-" + frame.result : ""}`}
-                aria-live="polite"
-              >
-                <span className="explanation-icon">
-                  {frame.result === "found" || frame.result === "complete" ? (
-                    <CheckCircle2 size={18} />
-                  ) : frame.result === "missing" ||
-                    frame.result === "limited" ? (
-                    <CircleHelp size={18} />
-                  ) : (
-                    <MousePointer2 size={18} />
-                  )}
-                </span>
-                <div>
-                  <strong>
-                    {frame.result === "found"
-                      ? "見つかりました！"
-                      : frame.result === "complete"
-                        ? category === "sort" ? "整列が完了しました" : "探索が完了しました"
-                        : frame.result === "missing"
-                          ? "探索が終了しました"
-                          : frame.result === "limited"
-                            ? "探索の上限に達しました"
-                            : safeStep === 0
-                              ? "準備完了"
-                              : `STEP ${String(safeStep).padStart(2, "0")} — ${category === "maze" ? "マスを訪問" : isGraph ? "ノードの探索・評価" : category === "sort" ? "比較・交換" : "値を比較"}`}
-                  </strong>
-                  <p>{frame.message}</p>
-                </div>
-              </div>
-              <div className="playback">
-                <div className="playback-top">
-                  <div className="transport">
-                    <button
-                      className="icon-button"
-                      onClick={reset}
-                      title="リセット (R)"
-                      aria-label="リセット"
-                    >
-                      <RotateCcw size={17} />
-                    </button>
-                    <span className="control-divider" />
-                    <button
-                      className="icon-button"
-                      disabled={safeStep === 0}
-                      onClick={() => seek(Math.max(0, safeStep - 1))}
-                      aria-label="1ステップ戻る"
-                      title="1ステップ戻る (←)"
-                    >
-                      <StepBack size={19} />
-                    </button>
-                    <button
-                      className="play-button"
-                      onClick={togglePlay}
-                      aria-label={playing ? "一時停止" : "再生"}
-                    >
-                      {playing ? (
-                        <Pause size={15} fill="currentColor" />
-                      ) : (
-                        <Play size={15} fill="currentColor" />
-                      )}
-                      {playing ? "一時停止" : ended ? "もう一度" : "再生"}
-                    </button>
-                    <button
-                      className="icon-button"
-                      disabled={ended}
-                      onClick={() =>
-                        seek(Math.min(frames.length - 1, safeStep + 1))
-                      }
-                      aria-label="1ステップ進む"
-                      title="1ステップ進む (→)"
-                    >
-                      <StepForward size={19} />
-                    </button>
-                    <button
-                      className="icon-button"
-                      disabled={ended}
-                      onClick={() => seek(frames.length - 1)}
-                      aria-label="最後まで進む"
-                      title="最後まで進む"
-                    >
-                      <SkipForward size={17} />
-                    </button>
-                  </div>
-                  <div className="speed-control">
-                    <Timer size={14} />
-                    <label htmlFor="speed">再生速度</label>
-                    <select
-                      id="speed"
-                      value={speed}
-                      onChange={(e) =>
-                        updatePreferences({ speed: Number(e.target.value) })
-                      }
-                    >
-                      <option value="0.25">0.25×</option>
-                      <option value="0.5">0.5×</option>
-                      <option value="1">1×</option>
-                      <option value="2">2×</option>
-                      <option value="4">4×</option>
-                      <option value="8">8×</option>
-                      <option value="16">16×</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="timeline">
-                  <input
-                    type="range"
-                    aria-label="実行ステップ"
-                    min="0"
-                    max={frames.length - 1}
-                    value={safeStep}
-                    onChange={(e) => seek(Number(e.target.value))}
-                    style={
-                      {
-                        "--progress": `${(safeStep / (frames.length - 1)) * 100}%`,
-                      } as React.CSSProperties
-                    }
-                  />
+                <details className="code-tip">
+                  <summary>観察のヒント</summary>
                   <span>
-                    <b>{String(safeStep).padStart(2, "0")}</b> /{" "}
-                    {String(frames.length - 1).padStart(2, "0")} ステップ
+                    <Sparkles size={15} />
                   </span>
-                </div>
-              </div>
-            </section>
-            <section
-              className="code-card card"
-              hidden={!preferences.showCode || preferences.layout === "focus"}
-            >
-              <div className="code-tabs">
+                  <p>
+                    {category === "array"
+                      ? "探索する値を変えると、比較する場所も変わります。配列の値をクリックして試してみましょう。"
+                      : category === "maze"
+                        ? "同じ迷路で BFS と DFS を切り替えて、訪問する順番と経路の違いを観察しましょう。"
+                        : category === "tree"
+                          ? "挿入順を昇順にしてみると、木が一直線に。木の高さと探索回数の関係を発見できます。"
+                          : category === "game"
+                            ? "同じ終端評価でミニマックス法とアルファベータ法を比べ、答えと訪問数を確認しましょう。"
+                            : category === "problem"
+                              ? "SUM は左右の答えを結合します。AND/OR では、両方が必要な問題と選べる問題の違いを観察しましょう。"
+                              : "ほぼ整列された配列では、どの方法が有利でしょう？ データを変えて比較してみましょう。"}
+                  </p>
+                </details>
+              </section>
+            </div>
+          </section>
+
+          <div className="workspace-toolbar" aria-label="ワークスペースの操作">
+            <div className="toolbar-layout">
+              <span>レイアウト</span>
+              {(
+                [
+                  { id: "split", label: "横並び", icon: Columns2 },
+                  { id: "stacked", label: "縦並び", icon: LayoutList },
+                  { id: "focus", label: "集中", icon: Maximize2 },
+                ] as const
+              ).map((layout) => (
                 <button
-                  className={codeTab === "code" ? "active" : ""}
-                  onClick={() => setCodeTab("code")}
+                  key={layout.id}
+                  aria-label={layout.label + "レイアウト"}
+                  aria-pressed={preferences.layout === layout.id}
+                  className={preferences.layout === layout.id ? "selected" : ""}
+                  onClick={() => updatePreferences({ layout: layout.id })}
                 >
-                  <Code2 size={16} />
-                  擬似コード
+                  <layout.icon size={16} />
+                  <span>{layout.label}</span>
                 </button>
-                <button
-                  className={codeTab === "about" ? "active" : ""}
-                  onClick={() => setCodeTab("about")}
-                >
-                  <BookOpen size={15} />
-                  仕組み
-                </button>
-                <span>Python</span>
-              </div>
-              {codeTab === "code" ? (
-                <div className="code-content">
-                  <div className="code-filename">
-                    <i /> {algorithmId.replaceAll("-", "_")}_search.py{" "}
-                    <span>学習用</span>
-                    <button
-                      className="icon-button"
-                      aria-label="擬似コードをコピー"
-                      onClick={() =>
-                        copyText(
-                          algorithm.code.join("\n"),
-                          "擬似コードをコピーしました。",
-                        )
-                      }
-                    >
-                      <Copy size={14} />
-                    </button>
-                  </div>
-                  <div className="code-lines">
-                    {algorithm.code.map((line, i) => (
-                      <div
-                        key={i}
-                        className={`code-line ${frame.line === i ? "highlighted" : ""}`}
-                      >
-                        <span className="line-indicator">
-                          {frame.line === i ? "›" : ""}
-                        </span>
-                        <span className="line-number">{i + 1}</span>
-                        <code>{colorCode(line)}</code>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="code-footnote">
-                    <span className="code-dot" />
-                    現在のステップに対応する行を表示
-                  </div>
-                </div>
-              ) : (
-                <div className="about-content">
-                  <span className="tag">HOW IT WORKS</span>
-                  <h3>{algorithm.name}の仕組み</h3>
-                  <p>{algorithm.description}</p>
-                  <ul>
-                    {algorithm.points.map((point, i) => (
-                      <li key={point}>
-                        <span>{i + 1}</span>
-                        {point}
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="about-complexity">
-                    <Clock3 size={15} />
-                    最悪時間 <b>{algorithm.time}</b>
-                    <Layers3 size={15} />
-                    空間 <b>{algorithm.space}</b>
-                  </div>
-                </div>
-              )}
-              <div className="code-tip">
-                <span>
-                  <Sparkles size={15} />
-                </span>
-                <p>
-                  {category === "array"
-                    ? "探索する値を変えると、比較する場所も変わります。配列の値をクリックして試してみましょう。"
-                    : category === "maze"
-                      ? "同じ迷路で BFS と DFS を切り替えて、訪問する順番と経路の違いを観察しましょう。"
-                      : category === "tree"
-                        ? "挿入順を昇順にしてみると、木が一直線に。木の高さと探索回数の関係を発見できます。"
-                        : category === "game" ? "同じ終端評価でミニマックス法とアルファベータ法を比べ、答えと訪問数を確認しましょう。"
-                          : category === "problem" ? "SUM は左右の答えを結合します。AND/OR では、両方が必要な問題と選べる問題の違いを観察しましょう。"
-                            : "ほぼ整列された配列では、どの方法が有利でしょう？ データを変えて比較してみましょう。"}
-                </p>
-              </div>
-            </section>
+              ))}
+            </div>
+            <div className="toolbar-actions">
+              <button
+                className="icon-button"
+                onClick={undo}
+                disabled={!past.length}
+                aria-label="元に戻す"
+                title="元に戻す (Ctrl+Z)"
+              >
+                <Undo2 size={17} />
+              </button>
+              <button
+                className="icon-button"
+                onClick={redo}
+                disabled={!future.length}
+                aria-label="やり直す"
+                title="やり直す (Ctrl+Shift+Z)"
+              >
+                <Redo2 size={17} />
+              </button>
+
+              <button
+                className="icon-button"
+                onClick={() => fileInput.current?.click()}
+                aria-label="実験を読み込む"
+                title="JSONを読み込む"
+              >
+                <Upload size={17} />
+              </button>
+              <button
+                className="icon-button"
+                onClick={exportExperiment}
+                aria-label="実験を保存"
+                title="JSONで保存"
+              >
+                <Download size={17} />
+              </button>
+              <button
+                className="icon-button"
+                onClick={() => openModal("share")}
+                aria-label="実験を共有"
+                title="実験の共有リンク"
+              >
+                <Share2 size={17} />
+              </button>
+              <button
+                className="icon-button"
+                onClick={toggleFullscreen}
+                disabled={!document.documentElement.requestFullscreen}
+                aria-label={fullscreen ? "全画面表示を終了" : "全画面表示"}
+              >
+                {fullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+              </button>
+            </div>
           </div>
 
           <div className="stats-row" hidden={!preferences.showStats}>
             <Stat
               icon={category === "maze" ? Workflow : Search}
-              label={category === "maze" ? "累積訪問回数" : isGraph ? "訪問ノード数" : "比較回数"}
+              label={
+                category === "maze"
+                  ? "累積訪問回数"
+                  : isGraph
+                    ? "訪問ノード数"
+                    : "比較回数"
+              }
               value={frame.comparisons}
               unit="回"
               detail={
                 category === "maze"
                   ? "再訪問も1回として計算"
-                  : isGraph ? "共有ノードの答えの再利用は除く" : "値を確認した回数"
+                  : isGraph
+                    ? "共有ノードの答えの再利用は除く"
+                    : "値を確認した回数"
               }
             />
             <Stat
               icon={category === "sort" ? Shuffle : Target}
               label={
-                isGraph ? category === "game" ? "根の評価値" : algorithmId === "and-or" ? "根の成否" : "総和"
-                : category === "sort"
-                  ? "交換回数"
-                  : category === "maze"
-                    ? "経路の長さ"
-                    : "探索する値"
+                isGraph
+                  ? category === "game"
+                    ? "根の評価値"
+                    : algorithmId === "and-or"
+                      ? "根の成否"
+                      : "総和"
+                  : category === "sort"
+                    ? "交換回数"
+                    : category === "maze"
+                      ? "経路の長さ"
+                      : "探索する値"
               }
               value={
-                isGraph ? algorithmId === "and-or" && frame.value !== undefined ? frame.value ? "成功" : "失敗" : formatScore(frame.value)
-                : category === "sort"
-                  ? frame.swaps
-                  : category === "maze"
-                    ? frame.path
-                      ? frame.path.length - 1
-                      : "—"
-                    : target
+                isGraph
+                  ? algorithmId === "and-or" && frame.value !== undefined
+                    ? frame.value
+                      ? "成功"
+                      : "失敗"
+                    : formatScore(frame.value)
+                  : category === "sort"
+                    ? frame.swaps
+                    : category === "maze"
+                      ? frame.path
+                        ? frame.path.length - 1
+                        : "—"
+                      : target
               }
               unit={
                 category === "sort" ? "回" : category === "maze" ? "歩" : ""
               }
               detail={
-                isGraph ? "最終結果まで進むと表示"
-                : category === "maze"
-                  ? frame.cost !== undefined
-                    ? `移動コスト：${frame.cost}`
-                    : "ゴール到達時に表示"
-                  : category === "sort"
-                    ? "要素を入れ替えた回数"
-                    : "目標のデータ"
+                isGraph
+                  ? "最終結果まで進むと表示"
+                  : category === "maze"
+                    ? frame.cost !== undefined
+                      ? `移動コスト：${frame.cost}`
+                      : "ゴール到達時に表示"
+                    : category === "sort"
+                      ? "要素を入れ替えた回数"
+                      : "目標のデータ"
               }
             />
             <Stat
               icon={Layers3}
               label={
-                isGraph ? algorithmId === "alpha-beta" ? "枝刈りノード数" : "ノード数"
-                : category === "maze"
-                  ? algorithmId === "iddfs"
-                    ? "深さ / 上限"
-                    : "探索待ち"
-                  : category === "tree"
-                    ? "木の高さ"
-                    : category === "sort"
-                      ? "要素数"
-                      : "残りの探索範囲"
+                isGraph
+                  ? algorithmId === "alpha-beta"
+                    ? "枝刈りノード数"
+                    : "ノード数"
+                  : category === "maze"
+                    ? algorithmId === "iddfs"
+                      ? "深さ / 上限"
+                      : "探索待ち"
+                    : category === "tree"
+                      ? "木の高さ"
+                      : category === "sort"
+                        ? "要素数"
+                        : "残りの探索範囲"
               }
               value={
-                isGraph ? algorithmId === "alpha-beta" ? frame.pruned?.length ?? 0 : graphNodes.length
-                : category === "maze"
-                  ? algorithmId === "iddfs"
-                    ? `${frame.depth ?? "—"} / ${frame.depthLimit ?? 0}`
-                    : (frame.frontier?.length ?? 0)
-                  : category === "tree"
-                    ? Math.max(0, ...buildTree(values).map((n) => n.depth)) + 1
-                    : category === "sort"
-                      ? values.length
-                      : frame.result === "missing"
-                        ? 0
-                        : frame.result === "found"
-                          ? 1
-                          : frame.left !== undefined &&
-                              frame.right !== undefined
-                            ? frame.right - frame.left + 1
-                            : Math.max(0, values.length - frame.visited.length)
+                isGraph
+                  ? algorithmId === "alpha-beta"
+                    ? (frame.pruned?.length ?? 0)
+                    : graphNodes.length
+                  : category === "maze"
+                    ? algorithmId === "iddfs"
+                      ? `${frame.depth ?? "—"} / ${frame.depthLimit ?? 0}`
+                      : (frame.frontier?.length ?? 0)
+                    : category === "tree"
+                      ? Math.max(0, ...buildTree(values).map((n) => n.depth)) +
+                        1
+                      : category === "sort"
+                        ? values.length
+                        : frame.result === "missing"
+                          ? 0
+                          : frame.result === "found"
+                            ? 1
+                            : frame.left !== undefined &&
+                                frame.right !== undefined
+                              ? frame.right - frame.left + 1
+                              : Math.max(
+                                  0,
+                                  values.length - frame.visited.length,
+                                )
               }
               unit={
                 category === "maze"
@@ -1784,12 +1921,15 @@ function App() {
                     : "個"
               }
               detail={
-                isGraph ? algorithmId === "alpha-beta" ? "子孫も含む未訪問の局面" : "内部ノードと終端ノードの合計"
-                : category === "tree"
-                  ? "根を1段目として計算"
-                  : category === "sort"
-                    ? "昇順に並べ替え"
-                    : "ステップごとに変化"
+                isGraph
+                  ? algorithmId === "alpha-beta"
+                    ? "子孫も含む未訪問の局面"
+                    : "内部ノードと終端ノードの合計"
+                  : category === "tree"
+                    ? "根を1段目として計算"
+                    : category === "sort"
+                      ? "昇順に並べ替え"
+                      : "ステップごとに変化"
               }
             />
             <Stat
@@ -1919,8 +2059,21 @@ function App() {
                           <th>right</th>
                         </>
                       )}
-                      <th>{category === "maze" ? "累積訪問数" : isGraph ? "訪問ノード数" : "比較数"}</th>
-                      {isGraph && <><th>根の結果</th><th>α</th><th>β</th><th>枝刈り数</th></>}
+                      <th>
+                        {category === "maze"
+                          ? "累積訪問数"
+                          : isGraph
+                            ? "訪問ノード数"
+                            : "比較数"}
+                      </th>
+                      {isGraph && (
+                        <>
+                          <th>根の結果</th>
+                          <th>α</th>
+                          <th>β</th>
+                          <th>枝刈り数</th>
+                        </>
+                      )}
                       {category === "maze" && (
                         <>
                           <th>深さ / 上限</th>
@@ -1974,7 +2127,13 @@ function App() {
                               {category === "maze"
                                 ? (f.cost ?? "—")
                                 : f.active.length
-                                  ? f.active.map((n) => isGraph ? formatNodeScore(f, n) : f.array[n]).join(", ")
+                                  ? f.active
+                                      .map((n) =>
+                                        isGraph
+                                          ? formatNodeScore(f, n)
+                                          : f.array[n],
+                                      )
+                                      .join(", ")
                                   : "—"}
                             </td>
                             {category === "array" && (
@@ -1985,7 +2144,14 @@ function App() {
                               </>
                             )}
                             <td>{f.comparisons}</td>
-                            {isGraph && <><td>{formatScore(f.value)}</td><td>{formatScore(f.alpha)}</td><td>{formatScore(f.beta)}</td><td>{f.pruned?.length ?? 0}</td></>}
+                            {isGraph && (
+                              <>
+                                <td>{formatScore(f.value)}</td>
+                                <td>{formatScore(f.alpha)}</td>
+                                <td>{formatScore(f.beta)}</td>
+                                <td>{f.pruned?.length ?? 0}</td>
+                              </>
+                            )}
                             {category === "maze" && (
                               <>
                                 <td>
@@ -2037,11 +2203,13 @@ function App() {
                   ? "壁や重いマスを置くと、最短の「距離」と最小の「コスト」は同じになるだろう？"
                   : category === "tree"
                     ? "同じ値でも、挿入する順番を変えると木の形はどう変わるだろう？"
-                    : category === "game" ? "終端の並びを逆順にすると、評価値やアルファベータ法の訪問数はどう変わるだろう？"
-                      : category === "problem" ? "AND の子に失敗がある場合と、OR の子に成功がある場合で、探索はいつ止まるだろう？"
+                    : category === "game"
+                      ? "終端の並びを逆順にすると、評価値やアルファベータ法の訪問数はどう変わるだろう？"
+                      : category === "problem"
+                        ? "AND の子に失敗がある場合と、OR の子に成功がある場合で、探索はいつ止まるだろう？"
                         : "整列済みのデータと逆順のデータ。比較回数はどう変わるだろう？"}
             </p>
-            <button onClick={() => setModal("compare")}>
+            <button onClick={() => openModal("compare")}>
               比較してみる
               <ArrowUpRight size={14} />
             </button>
@@ -2052,7 +2220,8 @@ function App() {
               探索ラボ <span>—</span> アルゴリズムを、見て理解する。
             </span>
             <span>
-              つくって、試して、学ぼう。<span className="footer-flower">✳</span>
+              つくって、試して、学ぼう。
+              <span className="footer-flower">✳</span>
             </span>
           </footer>
         </main>
@@ -2321,6 +2490,19 @@ function ArrayDiagram({
   category: Category;
   onPick: (n: number) => void;
 }) {
+  const viewport = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const pane = viewport.current;
+    const cell = pane?.querySelector<HTMLElement>(
+      ".array-column.active, .array-column.found",
+    );
+    if (!pane || !cell) return;
+    const cellBox = cell.getBoundingClientRect(),
+      paneBox = pane.getBoundingClientRect();
+    if (cellBox.left < paneBox.left || cellBox.right > paneBox.right)
+      pane.scrollLeft +=
+        cellBox.left - paneBox.left - (pane.clientWidth - cellBox.width) / 2;
+  }, [frame, view]);
   const low = frame.left ?? 0,
     high = frame.right ?? frame.array.length - 1;
   const min = Math.min(0, ...frame.array),
@@ -2339,7 +2521,23 @@ function ArrayDiagram({
           </span>
         )}
       </div>
-      <div className="array-scroll">
+      {category === "array" && frame.active.length > 0 && (
+        <div className="comparison-readout" aria-label="値の比較">
+          <span>比較</span>
+          <code>
+            a[{frame.active[0]}] = {frame.array[frame.active[0]]}{" "}
+            <b>
+              {frame.array[frame.active[0]] === target
+                ? "="
+                : frame.array[frame.active[0]] < target
+                  ? "<"
+                  : ">"}
+            </b>{" "}
+            target ({target})
+          </code>
+        </div>
+      )}
+      <div className="array-scroll" ref={viewport}>
         <div
           className="array-track"
           style={
@@ -2357,7 +2555,7 @@ function ArrayDiagram({
             return (
               <div
                 key={i}
-                className={`array-column ${found ? "found" : active ? "active" : visited ? "visited" : inRange ? "in-range" : "excluded"}`}
+                className={`array-column ${category === "sort" ? "sorting" : ""} ${found ? "found" : active ? "active" : !inRange ? "excluded" : visited ? "visited" : "in-range"}`}
               >
                 <div className="pointer-label">
                   {active && !found ? (
@@ -2374,7 +2572,7 @@ function ArrayDiagram({
                   ) : found ? (
                     <>
                       <Check size={15} />
-                      <span>発見</span>
+                      <span>{category === "sort" ? "確定" : "発見"}</span>
                     </>
                   ) : category === "array" && (i === low || i === high) ? (
                     <>
@@ -2407,15 +2605,26 @@ function ArrayDiagram({
                       ? `a[${i}] = ${value}`
                       : `${value} を探索対象にする`
                   }
-                  aria-label={
-                    category === "sort"
-                      ? `a[${i}] = ${value}`
-                      : `${value} を探索対象にする`
-                  }
+                  aria-label={`a[${i}] = ${value}：${found ? (category === "sort" ? "整列確定" : "発見") : active ? "比較中・現在位置" : !inRange ? "探索範囲外" : visited ? "確認済み" : "未確認"}${category !== "sort" ? `。${value} を探索対象にする` : ""}`}
                 >
                   <span>{value}</span>
                 </button>
                 <span className="array-index">{i}</span>
+                <span className="cell-state">
+                  {found
+                    ? category === "sort"
+                      ? "確定"
+                      : "発見"
+                    : active
+                      ? category === "sort"
+                        ? "比較"
+                        : "現在"
+                      : !inRange
+                        ? "対象外"
+                        : visited
+                          ? "確認済"
+                          : ""}
+                </span>
                 <div
                   className={`range-line ${category === "array" && inRange && !frame.result ? "visible" : ""}`}
                 />
@@ -2489,14 +2698,28 @@ function TreeDiagram({
             key={n.id}
             role="button"
             tabIndex={0}
-            aria-label={`${n.value} を探索対象にする`}
+            aria-label={`${n.value} を探索対象にする：${frame.found.includes(n.id) ? "発見" : frame.active.includes(n.id) ? "現在位置" : frame.visited.includes(n.id) ? "確認済み" : "未確認"}`}
             onClick={() => onPick(n.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") onPick(n.value);
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.stopPropagation();
+                onPick(n.value);
+              }
             }}
             className={`tree-node ${frame.found.includes(n.id) ? "found" : frame.active.includes(n.id) ? "active" : frame.visited.includes(n.id) ? "visited" : ""}`}
           >
             <circle cx={x(n.id)} cy={y(n.id)} r="21" />
+            {(frame.active.includes(n.id) || frame.found.includes(n.id)) && (
+              <text
+                className="node-state"
+                x={x(n.id)}
+                y={y(n.id) - 27}
+                textAnchor="middle"
+              >
+                {frame.found.includes(n.id) ? "✓" : "▼"}
+              </text>
+            )}
             <text x={x(n.id)} y={y(n.id) + 5} textAnchor="middle">
               {n.value}
             </text>
@@ -2566,7 +2789,11 @@ function TraceChart({
   return (
     <div className="trace-chart">
       <span className="chart-axis-label">
-        {category === "maze" ? "累積訪問回数" : category === "problem" || category === "game" ? "訪問ノード数" : "比較回数"}
+        {category === "maze"
+          ? "累積訪問回数"
+          : category === "problem" || category === "game"
+            ? "訪問ノード数"
+            : "比較回数"}
         {stride > 1 ? "（代表点を表示・全件はCSVへ）" : ""}
       </span>
       <svg
@@ -2691,6 +2918,9 @@ function Guide() {
           <kbd>Home</kbd> 最初へ / <kbd>End</kbd> 最後へ
         </span>
         <span>
+          <kbd>[</kbd> 減速 / <kbd>]</kbd> 加速
+        </span>
+        <span>
           <kbd>Ctrl / ⌘</kbd>＋<kbd>Z</kbd> 元に戻す（Shiftでやり直し）
         </span>
         <span>
@@ -2698,9 +2928,13 @@ function Guide() {
         </span>
         <small>
           入力中は通常の編集操作が優先されます。迷路内の矢印キーはマスの移動、Enter
-          / Space は編集に使います。
+          / Space
+          は編集に使います。表示設定で再生のショートカットを無効にできます。
         </small>
       </div>
+      <p className="guide-note">
+        1ステップは比較・訪問などの操作単位です。擬似コードは対応行を示し、すべての行を逐次実行するデバッガーではありません。変数・状態の印は前のステップからの変化を表します。
+      </p>
       <p className="guide-note">
         インデックスと迷路の座標は 0
         始まり。配列の最大要素数は32、木は31ノードです。整列が前提の探索では、入力を自動的に昇順にします。表示設定・実験・学習記録はブラウザーに保存します。
@@ -2742,12 +2976,13 @@ function Comparison({
                 ? treeFrames(a.id, data.tree, target)
                 : category === "sort"
                   ? sortFrames(a.id, data.sort)
-                  : category === "problem" || category === "game" ? advancedFrames(a.id as AdvancedId, data[category])
+                  : category === "problem" || category === "game"
+                    ? advancedFrames(a.id as AdvancedId, data[category])
                     : searchFrames(
-                      a.id,
-                      a.id === "linear" ? data.array : sorted,
-                      target,
-                    );
+                        a.id,
+                        a.id === "linear" ? data.array : sorted,
+                        target,
+                      );
           return {
             algorithm: a,
             last: frames[frames.length - 1],
@@ -2766,7 +3001,15 @@ function Comparison({
       <h2 id="modal-title">同じデータで、比べてみる。</h2>
       <p className="modal-description">
         現在の
-        {category === "maze" ? "迷路" : category === "tree" ? "木" : category === "game" ? "終端評価" : category === "problem" ? "入力値" : "配列"}
+        {category === "maze"
+          ? "迷路"
+          : category === "tree"
+            ? "木"
+            : category === "game"
+              ? "終端評価"
+              : category === "problem"
+                ? "入力値"
+                : "配列"}
         を使った、実際の実行結果です。
         {category === "array" || category === "tree"
           ? ` 探索する値：${target}`
@@ -2780,7 +3023,13 @@ function Comparison({
               <span>{a.time}</span>
               <b>
                 {last.comparisons}{" "}
-                <small>{category === "maze" ? "マス訪問" : category === "problem" || category === "game" ? "ノード訪問" : "回比較"}</small>
+                <small>
+                  {category === "maze"
+                    ? "マス訪問"
+                    : category === "problem" || category === "game"
+                      ? "ノード訪問"
+                      : "回比較"}
+                </small>
               </b>
             </div>
             <div className="comparison-bar">
@@ -2790,14 +3039,22 @@ function Comparison({
               {last.result === "limited"
                 ? "上限到達（経路の有無は未確定）"
                 : last.result === "missing"
-                  ? category === "problem" ? "根の問題を解決できませんでした" : "目標は見つかりませんでした"
-                  : category === "game" ? a.id === "game-tree" ? "全局面を走査（最善手の選択なし）" : `評価値 ${last.value} / 最善手 ${last.path?.[1] ?? "終端"} / 枝刈り ${last.pruned?.length ?? 0} ノード`
-                  : category === "problem" ? a.id === "and-or" ? "解グラフを発見" : `総和 ${last.value}`
-                  : category === "maze"
-                    ? `${(last.path?.length ?? 1) - 1} 歩 / コスト ${last.cost}`
-                    : category === "sort"
-                      ? `交換 ${last.swaps} 回`
-                      : "目標を発見"}
+                  ? category === "problem"
+                    ? "根の問題を解決できませんでした"
+                    : "目標は見つかりませんでした"
+                  : category === "game"
+                    ? a.id === "game-tree"
+                      ? "全局面を走査（最善手の選択なし）"
+                      : `評価値 ${last.value} / 最善手 ${last.path?.[1] ?? "終端"} / 枝刈り ${last.pruned?.length ?? 0} ノード`
+                    : category === "problem"
+                      ? a.id === "and-or"
+                        ? "解グラフを発見"
+                        : `総和 ${last.value}`
+                      : category === "maze"
+                        ? `${(last.path?.length ?? 1) - 1} 歩 / コスト ${last.cost}`
+                        : category === "sort"
+                          ? `交換 ${last.swaps} 回`
+                          : "目標を発見"}
               <span>{steps} ステップ</span>
             </p>
           </div>
@@ -2812,8 +3069,10 @@ function Comparison({
               ? "BFS / DFS / 反復深化は重みを無視します。最良優先 / A / A* / ダイクストラは重みをコストに加算します。最良優先と α>1 の A は最小コストを保証しません。反復深化は再訪問を累積し、設定した深さ上限を使用します。"
               : category === "tree"
                 ? "同じ木と目標値でも、ノードを訪問する順番によって比較回数が変わります。"
-                : category === "game" ? "同じゲーム木を左から探索します。ミニマックス法とアルファベータ法の根の評価と最善手は一致します。訪問数には内部ノードも含み、枝刈りした局面は含みません。"
-                  : category === "problem" ? "同じ数列を、分解では加算、AND/OR では成否（0 は失敗）として使います。異なる問題なので、訪問数は処理の違いを観察するための指標です。"
+                : category === "game"
+                  ? "同じゲーム木を左から探索します。ミニマックス法とアルファベータ法の根の評価と最善手は一致します。訪問数には内部ノードも含み、枝刈りした局面は含みません。"
+                  : category === "problem"
+                    ? "同じ数列を、分解では加算、AND/OR では成否（0 は失敗）として使います。異なる問題なので、訪問数は処理の違いを観察するための指標です。"
                     : "交換回数には、同じ位置どうしの交換は含みません。入力の並びを変えると、結果も変わります。"}
         </p>
       </div>
